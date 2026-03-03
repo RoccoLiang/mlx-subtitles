@@ -30,10 +30,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 將影片放入 `input/`，執行：
 
 ```bash
-./transcribe                                          # 處理 input/ 下所有影片
-./transcribe input/my_video.mp4                      # 單一檔案
-./transcribe input/my_video.mp4 large-v3-turbo       # 指定模型
+./transcribe                                              # 處理 input/ 下所有影片
+./transcribe input/my_video.mp4                          # 單一檔案
+./transcribe input/my_video.mp4 large-v3-turbo           # 指定模型
+./transcribe input/my_video.mp4 large-v3 ja              # 指定模型 + 來源語言
 ```
+
+來源語言預設自動偵測，需要強制指定時使用語言代碼：`en`、`ja`、`zh`、`fr`、`de`、`es` 等。
 
 **第一次執行**會自動：
 1. 偵測並移除不相容的虛擬環境（例如從其他機器同步過來的）

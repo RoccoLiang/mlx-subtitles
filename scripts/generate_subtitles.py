@@ -24,17 +24,19 @@ MODEL_REPOS = {
 }
 
 
-def transcribe_file(video_path: Path, output_dir: Path, model: str) -> None:
+def transcribe_file(video_path: Path, output_dir: Path, model: str, language: str | None = None) -> None:
     import mlx_whisper
 
     repo = MODEL_REPOS.get(model, f'mlx-community/whisper-{model}-mlx')
     stem = video_path.stem
 
-    print(f"  Transcribing: {video_path.name}  [{model}]")
+    lang_label = f", lang={language}" if language else ""
+    print(f"  Transcribing: {video_path.name}  [{model}{lang_label}]")
     result = mlx_whisper.transcribe(
         str(video_path),
         path_or_hf_repo=repo,
         word_timestamps=True,
+        language=language,
     )
 
     # Collect word-level timestamps
@@ -60,6 +62,7 @@ def main():
     parser.add_argument('--model',  default=DEFAULT_MODEL, choices=list(MODEL_REPOS),
                         help=f'Whisper model (default: {DEFAULT_MODEL})')
     parser.add_argument('--output', default=None, help='Output directory (default: <project>/output)')
+    parser.add_argument('--language', default=None, help='Source language code, e.g. en, ja, zh (default: auto-detect)')
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
@@ -73,7 +76,7 @@ def main():
         if not video_path.exists():
             print(f"ERROR: File not found: {video_path}", file=sys.stderr)
             sys.exit(1)
-        transcribe_file(video_path, output_dir, args.model)
+        transcribe_file(video_path, output_dir, args.model, args.language)
     else:
         input_dir = project_root / 'input'
         videos = sorted(f for f in input_dir.iterdir() if f.suffix.lower() in SUPPORTED_FORMATS)
@@ -81,7 +84,7 @@ def main():
             print(f"No videos found in {input_dir}", file=sys.stderr)
             sys.exit(1)
         for v in videos:
-            transcribe_file(v, output_dir, args.model)
+            transcribe_file(v, output_dir, args.model, args.language)
 
 
 if __name__ == '__main__':

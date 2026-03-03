@@ -1,12 +1,14 @@
 #!/bin/bash
-# transcribe - Generate English subtitles (.words.json + .en.srt) using mlx-whisper
+# transcribe - Generate word-level timestamps (.words.json) using mlx-whisper
 #
 # Usage:
-#   ./transcribe                    # process all videos in input/
-#   ./transcribe video.mp4          # process a single file
-#   ./transcribe video.mp4 medium   # specify model size
+#   ./transcribe                          # process all videos in input/
+#   ./transcribe video.mp4               # process a single file
+#   ./transcribe video.mp4 medium        # specify model size
+#   ./transcribe video.mp4 large-v3 ja   # specify model and source language
 #
 # Models: large-v3 (default), large-v3-turbo, medium, small
+# Languages: en, ja, zh, fr, de, es, ... (default: auto-detect)
 
 set -e
 
@@ -68,7 +70,8 @@ case $# in
     0) ;;
     1) ARGS=(--file "$1") ;;
     2) ARGS=(--file "$1" --model "$2") ;;
-    *) echo "Usage: transcribe [video_file] [model]"; exit 1 ;;
+    3) ARGS=(--file "$1" --model "$2" --language "$3") ;;
+    *) echo "Usage: transcribe [video_file] [model] [language]"; exit 1 ;;
 esac
 
 exec "$PYTHON" "$SCRIPT_DIR/scripts/generate_subtitles.py" "${ARGS[@]}"
