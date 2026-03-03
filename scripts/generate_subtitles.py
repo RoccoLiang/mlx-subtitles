@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate English subtitles (.words.json + .en.srt) using mlx-whisper.
+Generate word-level timestamps (.words.json) using mlx-whisper.
 
 Usage:
     python scripts/generate_subtitles.py                    # all videos in input/
@@ -22,14 +22,6 @@ MODEL_REPOS = {
     'medium':         'mlx-community/whisper-medium-mlx',
     'small':          'mlx-community/whisper-small-mlx',
 }
-
-
-def format_srt_time(seconds: float) -> str:
-    ms = int(round(seconds * 1000))
-    h  = ms // 3_600_000; ms %= 3_600_000
-    m  = ms // 60_000;    ms %= 60_000
-    s  = ms // 1_000;     ms %= 1_000
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
 def transcribe_file(video_path: Path, output_dir: Path, model: str) -> None:
@@ -60,15 +52,6 @@ def transcribe_file(video_path: Path, output_dir: Path, model: str) -> None:
     with open(words_path, 'w', encoding='utf-8') as f:
         json.dump(words, f, ensure_ascii=False, indent=2)
     print(f"  → {words_path}")
-
-    # English SRT
-    srt_path = output_dir / f"{stem}.en.srt"
-    with open(srt_path, 'w', encoding='utf-8') as f:
-        for i, seg in enumerate(result.get('segments', []), 1):
-            f.write(f"{i}\n")
-            f.write(f"{format_srt_time(seg['start'])} --> {format_srt_time(seg['end'])}\n")
-            f.write(f"{seg['text'].strip()}\n\n")
-    print(f"  → {srt_path}")
 
 
 def main():
