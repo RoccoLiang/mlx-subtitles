@@ -1,0 +1,18 @@
+# Virtual environment
+.venv/
+
+# Input / output content (keep directories, ignore files)
+input/*
+output/*
+!input/.gitkeep
+!output/.gitkeep
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code local settings
+.claude/settings.local.json
