@@ -90,10 +90,10 @@ PYTHON="python3"
 
 將本批單字以空格串接成原文，請 Claude 完成：
 
-1. **分句**：將連續單字組合成自然英文字幕段落
+1. **分句**：將連續單字組合成自然字幕段落
    - 以標點符號、語意停頓為優先邊界
-   - 每個分句目標 **8–15 個英文單字**（翻譯後約 14–22 中文字）
-   - 避免在介詞、連接詞、冠詞後斷句
+   - **英文來源（en）**：每句目標 8–15 個單字；避免在介詞、連接詞、冠詞後斷句
+   - **日文來源（ja）**：每句目標 15–40 個字符；`src` 欄位輸出自然日文句子（字符間不加空格）
 
 2. **翻譯**：將每個分句翻譯成正體中文（台灣用語）
 
@@ -101,13 +101,18 @@ PYTHON="python3"
    - 影視翻譯風格，口語自然流暢
    - 保持語意準確，不過度意譯
    - 同一人名全片保持一致譯法
-   - 不確定的人名直接保留英文原名
    - 專有名詞（品牌、技術術語）可保留原文
 
    **繁體中文（zh）額外規範**：
    - 使用台灣慣用繁體中文及口語表達
    - 絕對不可在人名音譯中使用「乘」（U+4E58）
    - 人名音譯標準用字：D→德/戴/迪，T→特/泰，W→威/溫，B→布/博，M→馬/曼，R→羅/瑞，Ch→查/奇
+
+   **日文來源（ja）額外規範**：
+   - 以中文重述日文意思，不直譯語序
+   - 日文人名、地名優先使用台灣慣用漢字或譯名；漢字人名可直接保留
+   - 日文敬語（です、ます等）翻成自然流暢中文，不保留敬語語氣詞
+   - 不確定的人名直接保留日文原名
 
    **音樂術語標準譯名**：
    chord→和弦、scale→音階、arpeggio→琶音、melody→旋律、harmony→和聲、
@@ -140,7 +145,7 @@ PYTHON="python3"
 
 ```bash
 python3 -c '
-import json, os, sys, re
+import json, os, sys, re, bisect
 
 TMPDIR     = sys.argv[1]
 WORDS_JSON = sys.argv[2]
@@ -163,9 +168,9 @@ while True:
     all_sentences.extend(batch)
     i += 1
 
-# 清理單字為純小寫英數（用於比對）
+# 清理單字：保留 ASCII 英數 及 Unicode 文字（支援日文 / 中文）
 def wclean(w):
-    return re.sub(r"[^a-z0-9]", "", w.lower())
+    return re.sub(r"[^\w]", "", w, flags=re.UNICODE).lower()
 
 wc = [wclean(w["word"]) for w in words]
 
@@ -173,44 +178,91 @@ def wc2(i):
     """合併相鄰兩個 token（處理 'JP' + '-8000' → 'jp8000' 的情形）"""
     return wc[i] + (wc[i+1] if i+1 < len(wc) else "")
 
+# 預先建立連接字串與起始位置表（供 CJK 字符級比對使用）
+wcat = "".join(wc)
+wcat_starts = []
+pos = 0
+for tok in wc:
+    wcat_starts.append(pos)
+    pos += len(tok)
+
+def is_cjk(text):
+    """判斷文字是否以 CJK（日文 / 中文）為主。"""
+    cjk = sum(1 for c in text if "\u3040" <= c <= "\u9fff")
+    asc = sum(1 for c in text if c.isascii() and c.isalnum())
+    return cjk > max(asc, 2)
+
 def find_start(src_text, search_from, window=150):
     """在 words.json 中順序比對 src_text 的起始位置。"""
-    toks = [wclean(w) for w in src_text.split() if wclean(w)]
-    anchor = toks[:3]
-    if not anchor:
+    src_clean = wclean(src_text)
+    if not src_clean:
         return None
-    best_score, best_pos = 0, None
-    for j in range(max(0, search_from - 3), min(search_from + window, len(wc))):
-        score = 0
-        for k, a in enumerate(anchor):
-            idx = j + k
-            if idx >= len(wc):
+
+    if is_cjk(src_clean):
+        # CJK 模式：以字符子串比對
+        anchor = src_clean[:6]
+        lo = wcat_starts[max(0, search_from - 3)]
+        hi = wcat_starts[min(search_from + window, len(wc) - 1)] + 10
+        idx = wcat.find(anchor, lo, hi)
+        if idx == -1:
+            anchor = src_clean[:3]
+            idx = wcat.find(anchor, max(0, lo - 30), hi + 30)
+        if idx == -1:
+            return None
+        return max(0, bisect.bisect_right(wcat_starts, idx) - 1)
+
+    else:
+        # 英文模式：以空格分詞比對
+        toks = [wclean(w) for w in src_text.split() if wclean(w)]
+        anchor = toks[:3]
+        if not anchor:
+            return None
+        best_score, best_pos = 0, None
+        for j in range(max(0, search_from - 3), min(search_from + window, len(wc))):
+            score = 0
+            for k, a in enumerate(anchor):
+                idx = j + k
+                if idx >= len(wc):
+                    break
+                w = wc[idx]
+                # 允許：精確比對、前綴比對、或合併兩 token 後比對
+                if a and w and (w == a
+                                or (len(a) >= 4 and (w.startswith(a[:4]) or wc2(idx).startswith(a[:4])))
+                                or (len(w) >= 4 and a.startswith(w[:4]))):
+                    score += 1
+            if score > best_score:
+                best_score, best_pos = score, j
+            if score == len(anchor):
                 break
-            w = wc[idx]
-            # 允許：精確比對、前綴比對、或合併兩 token 後比對
-            if a and w and (w == a
-                            or (len(a) >= 4 and (w.startswith(a[:4]) or wc2(idx).startswith(a[:4])))
-                            or (len(w) >= 4 and a.startswith(w[:4]))):
-                score += 1
-        if score > best_score:
-            best_score, best_pos = score, j
-        if score == len(anchor):
-            break
-    return best_pos if best_score >= min(2, len(anchor)) else None
+        return best_pos if best_score >= min(2, len(anchor)) else None
 
 def find_end(start, src_text, extra=12):
     """從 start 往後找 src_text 最後幾個字的結束位置。"""
-    last_toks = [wclean(w) for w in src_text.split()[-3:] if wclean(w)]
-    end_pos = start
-    n = len(src_text.split())
-    for j in range(start, min(start + n + extra, len(wc))):
-        w = wc[j]
-        for lw in last_toks:
-            if lw and w and (w == lw
-                             or wc2(j) == lw
-                             or (len(lw) >= 4 and (w.startswith(lw[:4]) or lw.startswith(w[:4])))):
-                end_pos = j
-    return min(end_pos, len(words) - 1)
+    src_clean = wclean(src_text)
+
+    if is_cjk(src_clean):
+        # CJK 模式：以末尾字符子串比對
+        anchor = src_clean[-4:]
+        lo = wcat_starts[start]
+        hi = min(lo + len(src_clean) + 30, len(wcat))
+        idx = wcat.rfind(anchor, lo, hi)
+        if idx == -1:
+            return min(start + max(1, len(src_clean) // 2), len(words) - 1)
+        return min(max(start, bisect.bisect_right(wcat_starts, idx) - 1), len(words) - 1)
+
+    else:
+        # 英文模式
+        last_toks = [wclean(w) for w in src_text.split()[-3:] if wclean(w)]
+        end_pos = start
+        n = len(src_text.split())
+        for j in range(start, min(start + n + extra, len(wc))):
+            w = wc[j]
+            for lw in last_toks:
+                if lw and w and (w == lw
+                                 or wc2(j) == lw
+                                 or (len(lw) >= 4 and (w.startswith(lw[:4]) or lw.startswith(w[:4])))):
+                    end_pos = j
+        return min(end_pos, len(words) - 1)
 
 def sec_to_ass(s):
     ms = int(round(s * 1000))
@@ -318,8 +370,8 @@ rm -f /tmp/_words_result_*.json
 
 | Style | 字體 | 大小 | 顏色 | 位置（MarginV）|
 |-------|------|------|------|----------------|
-| ZH    | Noto Sans CJK TC | 60 | 白色 | 66px（中文，上方）|
-| EN    | Noto Sans | 36 | 淡灰 | 18px（英文，底部）|
+| ZH    | Noto Sans CJK TC | 60 | 白色 | 80px（中文，上方）|
+| EN    | Noto Sans | 36 | 淡灰 | 38px（原文，底部）|
 
 畫面效果（底部）：
 ```
