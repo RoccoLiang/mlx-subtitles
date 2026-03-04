@@ -203,8 +203,8 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ZH,Noto Sans CJK TC,52,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,10,10,62,136
-Style: EN,Noto Sans,26,&H00BBBBBB,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,14,0
+Style: ZH,Noto Sans CJK TC,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,10,10,100,136
+Style: EN,Noto Sans,28,&H00CCCCCC,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,1,2,10,10,68,0
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"""
@@ -214,7 +214,11 @@ WATERMARK = re.compile(r"amara\.org|subtitles by the|opensubtitles", re.I)
 # ASCII sequences inside Chinese lines use Noto Sans at a smaller size so
 # Latin glyphs visually match the height of surrounding CJK characters.
 _ASCII_RE = re.compile(r"([A-Za-z0-9][A-Za-z0-9 \-\.\']*[A-Za-z0-9]|[A-Za-z0-9])")
-ZH_EN_FONTSIZE = 50  # Latin embedded in ZH lines (ZH style is 52pt)
+ZH_EN_FONTSIZE = 50  # Latin embedded in ZH lines (ZH style is 64pt)
+
+# Chinese punctuation suitable as line-break points
+_ZH_PUNCT = frozenset("，。、！？—；：")
+ZH_MAX_CHARS = 20   # characters per line before wrapping with \N
 
 
 def sec_to_ass(s: float) -> str:
@@ -233,11 +237,25 @@ def clean_zh(text: str) -> str:
 
 
 
+def wrap_zh(text: str) -> str:
+    """Insert \\N near midpoint if CJK character count exceeds ZH_MAX_CHARS."""
+    plain = re.sub(r"\{[^}]*\}", "", text)  # measure without tags
+    cjk_count = sum(1 for c in plain if "\u3040" <= c <= "\u9fff" or "\u4e00" <= c <= "\u9fff")
+    if cjk_count <= ZH_MAX_CHARS:
+        return text
+    mid = len(text) // 2
+    for delta in range(0, min(10, mid)):
+        for i in (mid + delta, mid - delta):
+            if 0 < i < len(text) and text[i - 1] in _ZH_PUNCT:
+                return text[:i] + "\\N" + text[i:]
+    return text[:mid] + "\\N" + text[mid:]
+
+
 def zh_with_font_tags(text: str) -> str:
     # Process each line segment separately to avoid tagging the \N line-break marker.
     # Use Noto Sans (non-CJK) at a reduced size so Latin glyphs visually match CJK height.
     def _tag(m: re.Match) -> str:
-        return f"{{\\fnNoto Sans\\fs{ZH_EN_FONTSIZE}}}{m.group(1)}{{\\fnNoto Sans CJK TC\\fs0}}"
+        return f"{{\\fnNoto Sans\\fs{ZH_EN_FONTSIZE}}}{m.group(1)}{{\\r}}"
     segments = text.split("\\N")
     tagged = [_ASCII_RE.sub(_tag, seg) for seg in segments]
     return "\\N".join(tagged)
@@ -260,7 +278,7 @@ def build_ass(
         s = sec_to_ass(t_s)
         e = sec_to_ass(t_e)
 
-        zh = zh_with_font_tags(clean_zh(entry["tgt"]).replace("\n", "\\N"))
+        zh = zh_with_font_tags(wrap_zh(clean_zh(entry["tgt"]).replace("\n", "\\N")))
         en = entry["src"].strip().replace("\n", "\\N")
 
         lines.append(f"Dialogue: 0,{s},{e},ZH,,0000,0000,0000,,{zh}")
