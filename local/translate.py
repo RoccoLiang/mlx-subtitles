@@ -23,11 +23,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import (
     LMSTUDIO_BASE_URL, TRANSLATE_MODEL, TRANSLATE_USE_NATIVE,
     TRANSLATE_SOURCE_LANG, TRANSLATE_TARGET_LANG,
-    TRANSLATE_MAX_TOKENS, REQUEST_TIMEOUT,
+    TRANSLATE_CHAT_BATCH_SIZE, TRANSLATE_MAX_TOKENS, REQUEST_TIMEOUT,
 )
 from glossary import as_keep_list
-
-TRANSLATE_BATCH_SIZE = 20  # segments per call (standard chat mode only)
 
 
 def _call(payload: dict) -> str:
@@ -120,7 +118,7 @@ def main() -> None:
         sys.exit(1)
 
     total = len(segments)
-    mode = "TranslateGemma native (1 call/segment)" if TRANSLATE_USE_NATIVE else f"chat batch ({TRANSLATE_BATCH_SIZE}/call)"
+    mode = "TranslateGemma native (1 call/segment)" if TRANSLATE_USE_NATIVE else f"chat batch ({TRANSLATE_CHAT_BATCH_SIZE}/call)"
     print(f"  Segments: {total}  |  Model: {TRANSLATE_MODEL}  |  Mode: {mode}")
     print(f"  {TRANSLATE_SOURCE_LANG} → {TRANSLATE_TARGET_LANG}\n")
 
@@ -133,25 +131,27 @@ def main() -> None:
             print(tgt[:40])
             results.append({"src": seg["src"], "tgt": tgt, "start": seg["start"], "end": seg["end"]})
     else:
-        for offset in range(0, total, TRANSLATE_BATCH_SIZE):
-            batch = segments[offset: offset + TRANSLATE_BATCH_SIZE]
+        for offset in range(0, total, TRANSLATE_CHAT_BATCH_SIZE):
+            batch = segments[offset: offset + TRANSLATE_CHAT_BATCH_SIZE]
             end_idx = offset + len(batch) - 1
             print(f"  Batch (segments {offset}–{end_idx})...", end=" ", flush=True)
 
             last_err = None
             translations = None
+            success = False
             for attempt in range(3):
                 try:
                     translations = translate_chat_batch(batch)
                     filled = sum(1 for t in translations if t)
                     if filled < len(batch) * 0.8:
                         raise ValueError(f"Only {filled}/{len(batch)} parsed")
+                    success = True
                     break
                 except Exception as e:
                     last_err = e
                     if attempt < 2:
                         print(f"(retry {attempt + 1})...", end=" ", flush=True)
-            if translations is None:
+            if not success:
                 raise RuntimeError(f"Batch failed: {last_err}")
 
             print("done")

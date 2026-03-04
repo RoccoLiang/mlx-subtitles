@@ -15,9 +15,8 @@ TRANSLATE_SOURCE_LANG = "en"
 TRANSLATE_TARGET_LANG = "zh-TW"
 
 # Batch sizes — tuned for 4096-token context window (input + output share the budget)
-SEGMENT_BATCH_SIZE   = 100  # words per segmentation batch  (200 was too close to 4096 limit)
-# TranslateGemma only supports one segment per call — TRANSLATE_BATCH_SIZE unused but kept for reference
-TRANSLATE_BATCH_SIZE = 1
+SEGMENT_BATCH_SIZE       = 100  # words per segmentation batch  (200 was too close to 4096 limit)
+TRANSLATE_CHAT_BATCH_SIZE = 20  # segments per call in standard chat mode (unused in native mode)
 
 # Max output tokens per API call (leave room for input within 4096 total)
 SEGMENT_MAX_TOKENS   = 2048

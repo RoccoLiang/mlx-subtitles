@@ -77,6 +77,19 @@ PYTHON="python3"
 [{"word": "Hey", "start": 0.54, "end": 0.72}, ...]
 ```
 
+> **注意：大型 words.json（> 256 KB）可能超過 Read 工具的限制。**
+> 遇到此情況，改用 Bash 搭配 Python 讀取：
+> ```bash
+> cat "<WORDS_JSON>" | python3 -c "
+> import json, sys
+> words = json.load(sys.stdin)
+> print(f'總字數：{len(words)}')
+> for i, w in enumerate(words[:5]):
+>     print(i, w)
+> "
+> ```
+> 分批處理時，同樣用 Bash + Python slice 取得各批次的 JSON 片段。
+
 記下總單字數 `TOTAL_WORDS`。
 
 ---

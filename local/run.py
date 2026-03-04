@@ -27,6 +27,9 @@ SCRIPTS_DIR  = PROJECT_ROOT / "scripts"
 OUTPUT_DIR   = PROJECT_ROOT / "output"
 TMP_DIR      = Path("/tmp")
 
+sys.path.insert(0, str(LOCAL_DIR))
+from config import SEGMENT_MODEL, TRANSLATE_MODEL
+
 
 def run(cmd: list) -> None:
     result = subprocess.run(cmd)
@@ -52,7 +55,6 @@ def resolve_words_json(input_file: Path) -> Path:
 
 def fix_words_json(words_json: Path) -> None:
     """Apply glossary corrections to words.json (in-place)."""
-    sys.path.insert(0, str(LOCAL_DIR))
     from glossary import load_corrections
     corrections = load_corrections()
     if not corrections:
@@ -177,11 +179,11 @@ def main() -> None:
     fix_words_json(words_json)
 
     # Step A: segmentation
-    print_section("Step A：分句（Gemma 3 27B）")
+    print_section(f"Step A：分句（{SEGMENT_MODEL}）")
     run([PYTHON, str(LOCAL_DIR / "segment.py"), str(words_json), str(TMP_DIR)])
 
     # Step B: translation
-    print_section("Step B：翻譯（TranslateGemma 27B）")
+    print_section(f"Step B：翻譯（{TRANSLATE_MODEL}）")
     run([PYTHON, str(LOCAL_DIR / "translate.py"), str(TMP_DIR), str(TMP_DIR)])
 
     # Assemble SRT

@@ -66,8 +66,8 @@ def extract_json_array(text: str) -> list[dict]:
     # Strip markdown code fences
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text.strip())
-    # Find outermost JSON array
-    m = re.search(r"\[.*\]", text, re.DOTALL)
+    # Find outermost JSON array (match [ followed by { to avoid grabbing bracket-only text)
+    m = re.search(r"\[[\s\S]*?\{[\s\S]*\}[\s\S]*?\]", text)
     if m:
         text = m.group(0)
     return json.loads(text)
@@ -94,11 +94,13 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> li
         raise RuntimeError(f"Batch {batch_num} failed after {max_retries + 1} attempts: {last_err}")
 
     result = []
+    skipped = 0
     for seg in raw_segments:
         ws = int(seg["word_start"])
         we = int(seg["word_end"])
         if ws < 0 or we >= len(words) or ws > we:
-            continue  # skip invalid indices
+            skipped += 1
+            continue
         result.append({
             "src":        seg["src"].strip(),
             "start":      words[ws]["start"],
@@ -106,6 +108,8 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> li
             "word_start": ws,
             "word_end":   we,
         })
+    if skipped:
+        print(f" ⚠ {skipped} invalid segment(s) skipped", end="", flush=True)
     return result
 
 

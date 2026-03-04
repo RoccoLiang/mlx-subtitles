@@ -288,8 +288,8 @@ confirm_and_run() {
         echo -e "  ${GREEN}${BOLD}✓  轉錄完成${RESET}"
         echo ""
         echo -e "  下一步：在 Claude Code 執行"
-        echo -e "  ${BOLD}/translate-ass input/$(basename "${SELECTED_FILES[0]}")${RESET}"
-        [ ${#SELECTED_FILES[@]} -gt 1 ] && echo -e "  ${DIM}（其他影片同樣執行 /translate-ass）${RESET}"
+        echo -e "  ${BOLD}/subtitles-srt input/$(basename "${SELECTED_FILES[0]}")${RESET}"
+        [ ${#SELECTED_FILES[@]} -gt 1 ] && echo -e "  ${DIM}（其他影片同樣執行 /subtitles-srt）${RESET}"
         echo ""
     else
         echo ""

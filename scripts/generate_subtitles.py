@@ -32,6 +32,7 @@ def transcribe_file(video_path: Path, output_dir: Path, model: str, language: st
 
     lang_label = f", lang={language}" if language else ""
     print(f"  Transcribing: {video_path.name}  [{model}{lang_label}]")
+    print(f"  （轉錄中，請稍候…）", flush=True)
     result = mlx_whisper.transcribe(
         str(video_path),
         path_or_hf_repo=repo,
@@ -49,11 +50,13 @@ def transcribe_file(video_path: Path, output_dir: Path, model: str, language: st
                 'end':   round(float(w['end']),   3),
             })
 
-    # words.json (used by /translate-srt)
+    seg_count = len(result.get('segments', []))
+
+    # words.json (used by /subtitles-srt)
     words_path = output_dir / f"{stem}.words.json"
     with open(words_path, 'w', encoding='utf-8') as f:
         json.dump(words, f, ensure_ascii=False, indent=2)
-    print(f"  → {words_path}")
+    print(f"  → {words_path}  （{len(words)} 個字，{seg_count} 段）")
 
 
 def main():

@@ -103,13 +103,13 @@ curl -s http://localhost:1234/v1/models
 | 格式 | 說明 |
 |------|------|
 | `正確詞` | 加入翻譯保留清單，告知模型不可翻譯 |
-| `錯誤=正確` | 分句前自動修正 words.json 中的錯誤拼寫 |
+| `錯誤->正確` | 分句前自動修正 words.json 中的錯誤拼寫 |
 
 ```
 # local/glossary.txt 範例
 Ferry Corsten
 Gouryella
-Guriela=Gouryella
+Guriela->Gouryella
 System F
 Muzikxpress
 ```

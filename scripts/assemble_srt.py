@@ -47,7 +47,8 @@ def sec_to_srt(s: float) -> str:
     return f"{h:02d}:{m:02d}:{sc:02d},{ms:03d}"
 
 
-def build_srt(segments: list[dict], text_key: str) -> str:
+def build_srt(segments: list[dict], text_key: str) -> tuple[str, int]:
+    """Return (srt_content, actual_entry_count)."""
     lines = []
     counter = 1
     n = len(segments)
@@ -67,7 +68,7 @@ def build_srt(segments: list[dict], text_key: str) -> str:
         lines.append(text)
         lines.append("")
         counter += 1
-    return "\n".join(lines)
+    return "\n".join(lines), counter - 1
 
 
 def main() -> None:
@@ -99,15 +100,17 @@ def main() -> None:
     en_out = stem + ".en.srt"
     cht_out = stem + ".cht.srt"
 
+    en_content, en_count = build_srt(segments, "src")
+    cht_content, cht_count = build_srt(segments, "tgt")
+
     with open(en_out, "w", encoding="utf-8") as f:
-        f.write(build_srt(segments, "src"))
+        f.write(en_content)
 
     with open(cht_out, "w", encoding="utf-8") as f:
-        f.write(build_srt(segments, "tgt"))
+        f.write(cht_content)
 
-    print(f"EN  SRT → {en_out}")
-    print(f"CHT SRT → {cht_out}")
-    print(f"共 {len(segments)} 條字幕")
+    print(f"EN  SRT → {en_out}  （{en_count} 條）")
+    print(f"CHT SRT → {cht_out}  （{cht_count} 條）")
 
 
 if __name__ == "__main__":
