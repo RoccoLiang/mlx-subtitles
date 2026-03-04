@@ -1,5 +1,7 @@
-# LM Studio server
-LMSTUDIO_BASE_URL = "http://localhost:1234/v1"
+import os
+
+# LM Studio server (override via LMSTUDIO_URL env var)
+LMSTUDIO_BASE_URL = os.environ.get("LMSTUDIO_URL", "http://localhost:1234/v1")
 
 # Model identifiers — verify via: curl http://localhost:1234/v1/models
 SEGMENT_MODEL   = "google/gemma-3-27b"

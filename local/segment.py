@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step A: Segment words.json into subtitle segments via LM Studio (Gemma 3 27B).
+Step A: Segment words.json into subtitle segments via LM Studio.
 
 Usage:
     python local/segment.py <words.json> [output_dir]

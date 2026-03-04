@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +26,7 @@ PYTHON       = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 LOCAL_DIR    = PROJECT_ROOT / "local"
 SCRIPTS_DIR  = PROJECT_ROOT / "scripts"
 OUTPUT_DIR   = PROJECT_ROOT / "output"
-TMP_DIR      = Path("/tmp")
+TMP_DIR      = Path(tempfile.gettempdir())
 
 sys.path.insert(0, str(LOCAL_DIR))
 from config import SEGMENT_MODEL, TRANSLATE_MODEL
@@ -72,7 +73,9 @@ def fix_words_json(words_json: Path) -> None:
         if stripped.lower() in lookup:
             correct = lookup[stripped.lower()]
             # Preserve leading/trailing whitespace from original
-            entry["word"] = entry["word"].replace(stripped, correct)
+            leading = len(entry["word"]) - len(entry["word"].lstrip())
+            trailing = len(entry["word"]) - len(entry["word"].rstrip())
+            entry["word"] = entry["word"][:leading] + correct + (entry["word"][len(entry["word"]) - trailing:] if trailing else "")
             fixed += 1
 
     if fixed:
@@ -94,12 +97,17 @@ _COMMON_CAPS = {
 
 def detect_proper_nouns(tmp_dir: Path) -> list[str]:
     """Scan translated segments for mid-sentence capitalized words not in glossary."""
-    results_path = tmp_dir / "_translated_result_0.json"
-    if not results_path.exists():
+    results = []
+    i = 0
+    while True:
+        p = tmp_dir / f"_translated_result_{i}.json"
+        if not p.exists():
+            break
+        with open(p, encoding="utf-8") as f:
+            results.extend(json.load(f))
+        i += 1
+    if not results:
         return []
-
-    with open(results_path, encoding="utf-8") as f:
-        results = json.load(f)
 
     from glossary import load_terms, load_corrections
     known = {t.lower() for t in load_terms()}
@@ -135,7 +143,7 @@ def glossary_review(candidates: list[str]) -> None:
     glossary_path = LOCAL_DIR / "glossary.txt"
     print(f"\n  如需修正拼寫，請在 {glossary_path} 中加入：")
     print("    正確詞：直接加一行（加入翻譯保留清單）")
-    print("    拼寫修正：用「錯誤=正確」格式（下次自動修正）")
+    print("    拼寫修正：用「錯誤->正確」格式（下次自動修正）")
     print()
 
     try:

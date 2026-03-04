@@ -10,6 +10,7 @@ Writes: <output_dir>/_translated_result_*.json
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -56,7 +57,6 @@ def translate_native(text: str) -> str:
 
 def translate_chat_batch(segments: list[dict]) -> list[str]:
     """Standard chat format — translate a batch as a numbered list."""
-    import re
     lines = [f"{i + 1}. {seg['src']}" for i, seg in enumerate(segments)]
     keep = as_keep_list()
     keep_line = f"{keep}\n" if keep else ""
@@ -90,6 +90,8 @@ def translate_one(text: str, max_retries: int = 2) -> str:
             return translate_native(text)
         except Exception as e:
             last_err = e
+            if attempt < max_retries:
+                print(f"(retry {attempt + 1})...", end=" ", flush=True)
     raise RuntimeError(f"Translation failed: {last_err}")
 
 
