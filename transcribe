@@ -171,8 +171,9 @@ choose_video() {
 
     echo ""
     local choice
-    read -rp "  選擇 [1]: " choice
-    choice="${choice:-1}"
+    read -rp "  選擇 (q 退出): " choice
+
+    [ "$choice" = "q" ] && echo "" && exit 0
 
     if [ -n "$all_opt" ] && [ "$choice" = "$all_opt" ]; then
         SELECTED_FILES=("${VIDEOS[@]}")
