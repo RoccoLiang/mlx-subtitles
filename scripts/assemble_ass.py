@@ -25,7 +25,12 @@ def load_words(words_json: str) -> list[dict]:
         return json.load(f)
 
 
+BATCH_SIZE = 200  # words per batch (must match the translate-ass skill)
+
+
 def load_sentences(tmpdir: str) -> list[dict]:
+    """Load all batch result files and annotate each sentence with its global
+    word offset so assemble can use direct index look-up instead of text search."""
     all_sentences = []
     i = 0
     while True:
@@ -33,7 +38,12 @@ def load_sentences(tmpdir: str) -> list[dict]:
         if not os.path.exists(p):
             break
         with open(p, encoding="utf-8") as f:
-            all_sentences.extend(json.load(f))
+            sentences = json.load(f)
+        global_offset = i * BATCH_SIZE
+        for s in sentences:
+            s["_global_start"] = global_offset + s.get("word_start", 0)
+            s["_global_end"] = global_offset + s.get("word_end", 0)
+        all_sentences.extend(sentences)
         i += 1
     return all_sentences
 
@@ -78,7 +88,7 @@ def find_start(
     wc: list[str],
     wcat: str,
     wcat_starts: list[int],
-    window: int = 150,
+    window: int = 300,
 ) -> int | None:
     """Return the best word-array index where src_text begins."""
     src_clean = wclean(src_text)
@@ -88,39 +98,53 @@ def find_start(
     if is_cjk(src_clean):
         anchor = src_clean[:6]
         lo = wcat_starts[max(0, search_from - 3)]
-        hi = wcat_starts[min(search_from + window, len(wc) - 1)] + 10
-        idx = wcat.find(anchor, lo, hi)
+        hi_near = wcat_starts[min(search_from + window, len(wc) - 1)] + 10
+        idx = wcat.find(anchor, lo, hi_near)
+        if idx == -1:
+            # Widen to full remaining text
+            idx = wcat.find(anchor, lo, len(wcat))
         if idx == -1:
             anchor = src_clean[:3]
-            idx = wcat.find(anchor, max(0, lo - 30), hi + 30)
+            idx = wcat.find(anchor, lo, len(wcat))
         if idx == -1:
             return None
         return max(0, bisect.bisect_right(wcat_starts, idx) - 1)
 
-    # English: token-based with fuzzy prefix matching
+    # English: first-3-token anchor (preserves word order including function words)
     toks = [wclean(w) for w in src_text.split() if wclean(w)]
     anchor = toks[:3]
     if not anchor:
         return None
-    best_score, best_pos = 0, None
-    for j in range(max(0, search_from - 3), min(search_from + window, len(wc))):
-        score = 0
-        for k, a in enumerate(anchor):
-            idx = j + k
-            if idx >= len(wc):
+    threshold = min(2, len(anchor))
+
+    def _search(lo: int, hi: int) -> tuple[int, int] | None:
+        best_score, best_pos = 0, None
+        for j in range(max(0, lo - 3), min(hi, len(wc))):
+            score = 0
+            for k, a in enumerate(anchor):
+                idx = j + k
+                if idx >= len(wc):
+                    break
+                w = wc[idx]
+                if a and w and (
+                    w == a
+                    or (len(a) >= 4 and (w.startswith(a[:4]) or merged(wc, idx).startswith(a[:4])))
+                    or (len(w) >= 4 and a.startswith(w[:4]))
+                ):
+                    score += 1
+            if score > best_score:
+                best_score, best_pos = score, j
+            if score == len(anchor):
                 break
-            w = wc[idx]
-            if a and w and (
-                w == a
-                or (len(a) >= 4 and (w.startswith(a[:4]) or merged(wc, idx).startswith(a[:4])))
-                or (len(w) >= 4 and a.startswith(w[:4]))
-            ):
-                score += 1
-        if score > best_score:
-            best_score, best_pos = score, j
-        if score == len(anchor):
-            break
-    return best_pos if best_score >= min(2, len(anchor)) else None
+        return (best_score, best_pos) if best_score >= threshold else None
+
+    # 1. Narrow window
+    result = _search(search_from, search_from + window)
+    if result is not None:
+        return result[1]
+    # 2. Full remaining text (handles large gaps in search_from advancement)
+    result = _search(search_from, len(wc))
+    return result[1] if result is not None else None
 
 
 def find_end(
@@ -170,16 +194,40 @@ def compute_timings(
 ) -> list[tuple[float, float]]:
     timings: list[tuple[float, float]] = []
     search_from = 0
-    for entry in all_sentences:
+    n_words = len(words)
+    n_sents = len(all_sentences)
+
+    for idx, entry in enumerate(all_sentences):
         src = entry.get("src", "")
-        pos = find_start(src, search_from, wc, wcat, wcat_starts)
+
+        # ── Primary: direct global word index from batch metadata ─────────────
+        gs = entry.get("_global_start", -1)
+        ge = entry.get("_global_end", -1)
+        if gs > 0 and ge >= gs and ge < n_words:
+            t_s = words[gs]["start"]
+            t_e = words[ge]["end"]
+            if t_e <= t_s:
+                t_e = t_s + 0.5
+            search_from = max(search_from, ge)
+            timings.append((t_s, t_e))
+            continue
+
+        # ── Secondary: narrow text search around expected position ────────────
+        # Estimate expected word position via linear interpolation as a hint so
+        # that a single wrong match can't push search_from past a large gap.
+        expected = int(idx * n_words / n_sents)
+        hint = max(search_from, expected - 50)
+
+        pos = find_start(src, hint, wc, wcat, wcat_starts, window=300)
+        # Reject matches that jump more than 20% of total words ahead of expected
+        if pos is not None and pos > expected + n_words // 5:
+            pos = None
         if pos is not None:
             end_pos = find_end(pos, src, wc, wcat, wcat_starts, words)
             t_s = words[pos]["start"]
             t_e = words[end_pos]["end"]
             if t_e <= t_s:
                 t_e = t_s + 0.5
-            # Advance search cursor — for CJK advance to end; for English advance to midpoint
             if is_cjk(wclean(src)):
                 search_from = max(search_from, end_pos)
             else:
@@ -187,6 +235,8 @@ def compute_timings(
         else:
             t_s = timings[-1][1] if timings else 0
             t_e = t_s + 1.5
+            # Still advance search_from so we don't stagnate
+            search_from = max(search_from, hint + max(1, len(src.split())))
         timings.append((t_s, t_e))
     return timings
 
