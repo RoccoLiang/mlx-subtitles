@@ -13,6 +13,7 @@ Examples:
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -78,6 +79,73 @@ def fix_words_json(words_json: Path) -> None:
         print(f"  詞條修正：{fixed} 處")
 
 
+# 常見不需列出的大寫詞
+_COMMON_CAPS = {
+    "i", "i'm", "i've", "i'll", "i'd", "i've",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "june", "july", "august",
+    "september", "october", "november", "december",
+    "english", "chinese", "japanese", "french", "german", "dutch", "spanish",
+    "american", "european", "british", "yes", "no", "ok", "okay",
+}
+
+
+def detect_proper_nouns(tmp_dir: Path) -> list[str]:
+    """Scan translated segments for mid-sentence capitalized words not in glossary."""
+    results_path = tmp_dir / "_translated_result_0.json"
+    if not results_path.exists():
+        return []
+
+    with open(results_path, encoding="utf-8") as f:
+        results = json.load(f)
+
+    from glossary import load_terms, load_corrections
+    known = {t.lower() for t in load_terms()}
+    known |= {v.lower() for v in load_corrections().values()}
+
+    counts: dict[str, int] = {}
+    for seg in results:
+        words_in_seg = seg.get("src", "").split()
+        for i, word in enumerate(words_in_seg):
+            clean = re.sub(r"[^a-zA-Z'&-]", "", word)
+            if len(clean) < 2 or i == 0:
+                continue
+            if clean[0].isupper() and clean.lower() not in _COMMON_CAPS and clean.lower() not in known:
+                counts[clean] = counts.get(clean, 0) + 1
+
+    return sorted(counts, key=lambda x: -counts[x])
+
+
+def glossary_review(candidates: list[str]) -> None:
+    """Show detected proper nouns and offer to open glossary.txt for editing."""
+    print_section("專有名詞校對")
+
+    if not candidates:
+        print("  未偵測到新的專有名詞\n")
+        return
+
+    print("  以下詞彙可能是專有名詞（未在 glossary.txt 中）：\n")
+    for term in candidates[:30]:
+        print(f"    {term}")
+    if len(candidates) > 30:
+        print(f"    … 共 {len(candidates)} 個")
+
+    glossary_path = LOCAL_DIR / "glossary.txt"
+    print(f"\n  如需修正拼寫，請在 {glossary_path} 中加入：")
+    print("    正確詞：直接加一行（加入翻譯保留清單）")
+    print("    拼寫修正：用「錯誤=正確」格式（下次自動修正）")
+    print()
+
+    try:
+        ans = input("  要現在開啟 glossary.txt 編輯嗎？[y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        ans = ""
+
+    if ans == "y":
+        subprocess.run(["open", str(glossary_path)])
+    print()
+
+
 def cleanup_tmp() -> None:
     for pattern in ("_segments_result_*.json", "_translated_result_*.json"):
         for f in glob.glob(str(TMP_DIR / pattern)):
@@ -120,8 +188,13 @@ def main() -> None:
     print_section("組裝 SRT")
     run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(input_path)])
 
+    # Detect proper nouns before cleanup
+    candidates = detect_proper_nouns(TMP_DIR)
+
     cleanup_tmp()
-    print("\n  完成\n")
+
+    print("\n  完成")
+    glossary_review(candidates)
 
 
 if __name__ == "__main__":
