@@ -110,7 +110,7 @@ def fix_words_json(words_json: Path) -> None:
 _COMMON_CAPS = {
     "i", "i'm", "i've", "i'll", "i'd",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "june", "july", "august",
+    "january", "february", "march", "april", "may", "june", "july", "august",
     "september", "october", "november", "december",
     "english", "chinese", "japanese", "french", "german", "dutch", "spanish",
     "american", "european", "british", "yes", "no", "ok", "okay",
@@ -189,9 +189,12 @@ def print_section(title: str) -> None:
 
 
 def main() -> None:
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+    if len(sys.argv) < 2:
         print(__doc__)
-        sys.exit(0 if sys.argv[1] in ("-h", "--help") else 1)
+        sys.exit(1)
+    if sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
 
     input_path = Path(sys.argv[1])
     if not input_path.is_absolute():

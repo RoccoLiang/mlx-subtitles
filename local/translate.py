@@ -127,6 +127,7 @@ def main() -> None:
     print(f"  {TRANSLATE_SOURCE_LANG} → {TRANSLATE_TARGET_LANG}\n")
 
     results = []
+    _MAX_ATTEMPTS = 3
 
     if TRANSLATE_USE_NATIVE:
         for i, seg in enumerate(segments):
@@ -143,7 +144,6 @@ def main() -> None:
             last_err = None
             translations = []
             success = False
-            _MAX_ATTEMPTS = 3
             for attempt in range(_MAX_ATTEMPTS):
                 try:
                     translations = translate_chat_batch(batch)
