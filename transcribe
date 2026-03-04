@@ -131,7 +131,7 @@ EOF
 collect_videos() {
     VIDEOS=()
     for ext in mp4 mov mkv avi m4v webm flv wmv; do
-        for f in "$INPUT_DIR"/*."$ext" "$INPUT_DIR"/*."${ext^^}"; do
+        for f in "$INPUT_DIR"/*."$ext" "$INPUT_DIR"/*."$(echo "$ext" | tr '[:lower:]' '[:upper:]')"; do
             [ -f "$f" ] && VIDEOS+=("$f")
         done
     done
