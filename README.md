@@ -98,14 +98,18 @@ curl -s http://localhost:1234/v1/models
 
 ## 專有名詞術語表
 
-在 `local/glossary.txt` 新增專有名詞（人名、品牌、節目名等），可提升：
-- **轉錄準確度**：作為 Whisper `initial_prompt` 偏向正確拼法
-- **翻譯保留率**：告知模型哪些詞不可翻譯
+在 `local/glossary.txt` 新增專有名詞（人名、品牌、節目名等）：
+
+| 格式 | 說明 |
+|------|------|
+| `正確詞` | 加入翻譯保留清單，告知模型不可翻譯 |
+| `錯誤=正確` | 分句前自動修正 words.json 中的錯誤拼寫 |
 
 ```
 # local/glossary.txt 範例
 Ferry Corsten
 Gouryella
+Guriela=Gouryella
 System F
 Muzikxpress
 ```
