@@ -54,6 +54,27 @@ def resolve_words_json(input_file: Path) -> Path:
     return words_json
 
 
+_VIDEO_EXTS = ("mp4", "mov", "mkv", "avi", "m4v", "webm", "flv", "wmv")
+
+
+def resolve_video_path(input_path: Path) -> Path:
+    """Return the video file path to use as the SRT output base.
+
+    If input is already a video file, return it directly.
+    If input is a words.json, look for the corresponding video in input/.
+    Falls back to input_path if no matching video is found.
+    """
+    if not input_path.name.endswith(".words.json"):
+        return input_path  # already a video
+
+    stem = input_path.name[: -len(".words.json")]  # e.g. "video" from "video.words.json"
+    for ext in _VIDEO_EXTS:
+        candidate = INPUT_DIR / f"{stem}.{ext}"
+        if candidate.exists():
+            return candidate
+    return input_path  # fallback: output next to words.json
+
+
 def fix_words_json(words_json: Path) -> None:
     """Apply glossary corrections to words.json (in-place)."""
     from glossary import load_corrections
@@ -181,6 +202,10 @@ def main() -> None:
 
     words_json = resolve_words_json(input_path)
 
+    # Resolve the video file for SRT output location:
+    # Always output .en.srt / .cht.srt next to the video in input/
+    srt_base_path = resolve_video_path(input_path)
+
     print(f"\n  輸入：{words_json.name}")
 
     # Glossary post-processing: fix known misspellings in words.json
@@ -196,7 +221,7 @@ def main() -> None:
 
     # Assemble SRT
     print_section("組裝 SRT")
-    run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(input_path)])
+    run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(srt_base_path)])
 
     # Detect proper nouns before cleanup
     candidates = detect_proper_nouns(TMP_DIR)
