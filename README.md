@@ -21,7 +21,7 @@
 - [Claude Code](https://claude.ai/code)
 
 **本地全端工作流程**
-- [LM Studio](https://lmstudio.ai/)，載入分句模型與翻譯模型（詳見下方）
+- [LM Studio](https://lmstudio.ai/)，載入一個 Instruct 模型（分句與翻譯共用）
 
 ---
 
@@ -57,14 +57,14 @@
 
 **Step 2 — 啟動 LM Studio，載入模型**
 
-在 `local/config.py` 確認模型 ID 與 LM Studio 一致：
+在 `local/config.py` 確認模型 ID 與 LM Studio 載入的一致（分句與翻譯可使用同一個模型）：
 
 ```python
-SEGMENT_MODEL   = "google/gemma-3-12b"   # 分句用
-TRANSLATE_MODEL = "google/gemma-3-12b"   # 翻譯用
+SEGMENT_MODEL   = "your-model-id"   # 分句用
+TRANSLATE_MODEL = "your-model-id"   # 翻譯用（可同上）
 ```
 
-可執行以下指令查看目前載入的模型 ID：
+執行以下指令查看 LM Studio 目前載入的模型 ID：
 
 ```bash
 curl -s http://localhost:1234/v1/models
