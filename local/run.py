@@ -11,6 +11,7 @@ Examples:
 """
 
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -48,6 +49,35 @@ def resolve_words_json(input_file: Path) -> Path:
     return words_json
 
 
+def fix_words_json(words_json: Path) -> None:
+    """Apply glossary corrections to words.json (in-place)."""
+    sys.path.insert(0, str(LOCAL_DIR))
+    from glossary import load_corrections
+    corrections = load_corrections()
+    if not corrections:
+        return
+
+    # Build case-insensitive lookup: lower(wrong) → correct
+    lookup = {k.lower(): v for k, v in corrections.items()}
+
+    with open(words_json, encoding="utf-8") as f:
+        words = json.load(f)
+
+    fixed = 0
+    for entry in words:
+        stripped = entry["word"].strip()
+        if stripped.lower() in lookup:
+            correct = lookup[stripped.lower()]
+            # Preserve leading/trailing whitespace from original
+            entry["word"] = entry["word"].replace(stripped, correct)
+            fixed += 1
+
+    if fixed:
+        with open(words_json, "w", encoding="utf-8") as f:
+            json.dump(words, f, ensure_ascii=False, indent=2)
+        print(f"  詞條修正：{fixed} 處")
+
+
 def cleanup_tmp() -> None:
     for pattern in ("_segments_result_*.json", "_translated_result_*.json"):
         for f in glob.glob(str(TMP_DIR / pattern)):
@@ -74,6 +104,9 @@ def main() -> None:
     words_json = resolve_words_json(input_path)
 
     print(f"\n  輸入：{words_json.name}")
+
+    # Glossary post-processing: fix known misspellings in words.json
+    fix_words_json(words_json)
 
     # Step A: segmentation
     print_section("Step A：分句（Gemma 3 27B）")

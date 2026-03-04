@@ -1,13 +1,15 @@
 # 專有名詞術語表
-# 一行一個詞，用於：
-#   1. Whisper 轉錄 initial_prompt（提高辨識準確度）
-#   2. 翻譯 prompt（確保這些詞不被翻譯成中文）
 #
-# 格式：直接寫詞，# 開頭為註解
+# 兩種格式：
+#   正確詞        → 加入 Whisper initial_prompt 與翻譯保留清單
+#   錯誤=正確     → 額外在 words.json 後處理時自動修正拼寫
+#
+# # 開頭為註解
 
 # 人名 / 藝名
 Ferry Corsten
 Gouryella
+Guriela=Gouryella
 Stoneface & Terminal
 
 # 節目 / 廠牌 / 企劃
