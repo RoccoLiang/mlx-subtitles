@@ -64,8 +64,8 @@ def translate_chat_batch(segments: list[dict]) -> list[str]:
         f"Translate each numbered line from {TRANSLATE_SOURCE_LANG} to Traditional Chinese (Taiwan).\n"
         "Keep English proper nouns, brand names, and technical terms unchanged.\n"
         f"{keep_line}"
-        "Use natural spoken style. Each line should be 13–35 Chinese characters.\n"
-        "Chinese SRT punctuation rules: no period (。) at line end; replace commas (，) and pauses (、) with a half-width space; keep ？！…《》「」 only when semantically necessary.\n"
+        "Use natural spoken style. Each line should be 12–16 Chinese characters, hard limit 20; max 2 lines per entry.\n"
+        "Chinese SRT punctuation rules: no period (。) at line end; no commas (，) mid-line — replace with a full-width space (　); keep ？！…《》 only when semantically necessary.\n"
         "Return ONLY the numbered translations.\n\n"
         + "\n".join(lines)
     )

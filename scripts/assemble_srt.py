@@ -22,23 +22,27 @@ import sys
 HOLD_TIME = 0.4  # Seconds subtitle lingers after last word ends
 
 # ── Chinese SRT normalisation ──────────────────────────────────────────────────
+_FWSP        = '\u3000'                      # 全形空格（與中文字等寬）
 _CHT_REMOVE  = re.compile(r'[。]')          # full stop — always remove
-_CHT_TO_SPC  = re.compile(r'[，、；]')      # commas / semicolons → space
-_MULTI_SPC   = re.compile(r'  +')           # collapse multiple spaces
+_CHT_TO_SPC  = re.compile(r'[，、；]')      # commas / semicolons → 全形空格
+_MULTI_FWSP  = re.compile(r'\u3000{2,}')    # collapse consecutive 全形空格
 
 
 def normalize_cht(text: str) -> str:
-    """Apply Chinese SRT formatting conventions.
+    """Apply Chinese SRT formatting conventions (業界慣例).
 
     - Removes sentence-ending periods (。)
-    - Replaces commas and enumeration marks (，、；) with a half-width space
+    - Replaces commas and enumeration marks (，、；) with a full-width space (　)
+    - Collapses consecutive full-width spaces to one
     - Preserves semantic punctuation: ？！…：《》「」『』〈〉—
-    - Collapses multiple spaces and strips leading/trailing whitespace
+    - Strips leading/trailing whitespace (half- and full-width)
+
+    Per-line target: 12–16 chars, hard limit 20 chars (enforced by translation prompt).
     """
     text = _CHT_REMOVE.sub('', text)
-    text = _CHT_TO_SPC.sub(' ', text)
-    text = _MULTI_SPC.sub(' ', text).strip()
-    return text
+    text = _CHT_TO_SPC.sub(_FWSP, text)
+    text = _MULTI_FWSP.sub(_FWSP, text)
+    return text.strip('\u3000 \t')
 
 
 def load_segments(tmpdir: str) -> list[dict]:
