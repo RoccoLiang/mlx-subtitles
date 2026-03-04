@@ -24,19 +24,33 @@ MODEL_REPOS = {
 }
 
 
+def load_initial_prompt() -> str | None:
+    """Load glossary terms as whisper initial_prompt if glossary.txt exists."""
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent / "local"))
+        from glossary import as_initial_prompt
+        prompt = as_initial_prompt()
+        return prompt if prompt else None
+    except ImportError:
+        return None
+
+
 def transcribe_file(video_path: Path, output_dir: Path, model: str, language: str | None = None) -> None:
     import mlx_whisper
 
     repo = MODEL_REPOS.get(model, f'mlx-community/whisper-{model}-mlx')
     stem = video_path.stem
 
+    initial_prompt = load_initial_prompt()
     lang_label = f", lang={language}" if language else ""
-    print(f"  Transcribing: {video_path.name}  [{model}{lang_label}]")
+    prompt_label = f", prompt='{initial_prompt}'" if initial_prompt else ""
+    print(f"  Transcribing: {video_path.name}  [{model}{lang_label}{prompt_label}]")
     result = mlx_whisper.transcribe(
         str(video_path),
         path_or_hf_repo=repo,
         word_timestamps=True,
         language=language,
+        **({"initial_prompt": initial_prompt} if initial_prompt else {}),
     )
 
     # Collect word-level timestamps
