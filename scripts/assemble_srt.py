@@ -16,9 +16,29 @@ Outputs:
 
 import json
 import os
+import re
 import sys
 
 HOLD_TIME = 0.4  # Seconds subtitle lingers after last word ends
+
+# ── Chinese SRT normalisation ──────────────────────────────────────────────────
+_CHT_REMOVE  = re.compile(r'[。]')          # full stop — always remove
+_CHT_TO_SPC  = re.compile(r'[，、；]')      # commas / semicolons → space
+_MULTI_SPC   = re.compile(r'  +')           # collapse multiple spaces
+
+
+def normalize_cht(text: str) -> str:
+    """Apply Chinese SRT formatting conventions.
+
+    - Removes sentence-ending periods (。)
+    - Replaces commas and enumeration marks (，、；) with a half-width space
+    - Preserves semantic punctuation: ？！…：《》「」『』〈〉—
+    - Collapses multiple spaces and strips leading/trailing whitespace
+    """
+    text = _CHT_REMOVE.sub('', text)
+    text = _CHT_TO_SPC.sub(' ', text)
+    text = _MULTI_SPC.sub(' ', text).strip()
+    return text
 
 
 def load_segments(tmpdir: str) -> list[dict]:
@@ -47,13 +67,18 @@ def sec_to_srt(s: float) -> str:
     return f"{h:02d}:{m:02d}:{sc:02d},{ms:03d}"
 
 
-def build_srt(segments: list[dict], text_key: str) -> tuple[str, int]:
-    """Return (srt_content, actual_entry_count)."""
+def build_srt(segments: list[dict], text_key: str, normalize=None) -> tuple[str, int]:
+    """Return (srt_content, actual_entry_count).
+
+    normalize: optional callable applied to each text entry (e.g. normalize_cht).
+    """
     lines = []
     counter = 1
     n = len(segments)
     for idx, entry in enumerate(segments):
         text = entry.get(text_key, "").strip()
+        if normalize:
+            text = normalize(text)
         if not text:
             continue
         t_s = entry["start"]
@@ -101,7 +126,7 @@ def main() -> None:
     cht_out = stem + ".cht.srt"
 
     en_content, en_count = build_srt(segments, "src")
-    cht_content, cht_count = build_srt(segments, "tgt")
+    cht_content, cht_count = build_srt(segments, "tgt", normalize=normalize_cht)
 
     with open(en_out, "w", encoding="utf-8") as f:
         f.write(en_content)
