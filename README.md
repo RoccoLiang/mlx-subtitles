@@ -73,7 +73,13 @@ curl -s http://localhost:1234/v1/models
 **Step 3 — 執行本地 Pipeline**
 
 ```bash
-.venv/bin/python local/run.py input/你的影片.mp4
+./subtitle_processor
+```
+
+或跳過互動直接指定影片：
+
+```bash
+./subtitle_processor input/你的影片.mp4
 ```
 
 ---
@@ -110,5 +116,6 @@ Muzikxpress
 
 - 支援格式：`.mp4` `.mov` `.mkv` `.avi` `.m4v` `.webm` `.flv` `.wmv`
 - 換機器或重新偵測硬體：`./transcribe --reset`
-- 跳過互動直接跑：`./transcribe input/video.mp4 [模型] [語言]`
+- 跳過互動直接跑（轉錄）：`./transcribe input/video.mp4 [模型] [語言]`
+- 跳過互動直接跑（字幕）：`./subtitle_processor input/video.mp4`
 - 本地 Pipeline context 限制：預設 batch 為 100 詞/次，適配 4096 token context window

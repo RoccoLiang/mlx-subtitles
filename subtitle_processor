@@ -1,0 +1,161 @@
+#!/bin/bash
+# subtitle_processor — 互動式字幕分句與翻譯工具（本地 LM Studio）
+#
+# 後續執行：互動式選單選擇影片，透過本地 LM Studio 完成分句與翻譯
+#
+# 進階用法（直接傳參，略過互動）：
+#   ./subtitle_processor video.mp4    # 處理單一影片
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/.venv"
+PYTHON="$VENV_DIR/bin/python"
+INPUT_DIR="$SCRIPT_DIR/input"
+LMSTUDIO_URL="http://localhost:1234/v1/models"
+
+# ── 顏色 ───────────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+    BOLD='\033[1m'; DIM='\033[2m'; GREEN='\033[32m'
+    CYAN='\033[36m'; YELLOW='\033[33m'; RESET='\033[0m'
+else
+    BOLD=''; DIM=''; GREEN=''; CYAN=''; YELLOW=''; RESET=''
+fi
+
+# ── LM Studio 檢查 ─────────────────────────────────────────────────────────────
+
+check_lmstudio() {
+    if ! curl -sf "$LMSTUDIO_URL" -o /dev/null 2>/dev/null; then
+        echo ""
+        echo -e "  ${YELLOW}⚠️   無法連線至 LM Studio${RESET}"
+        echo -e "  請先啟動 LM Studio 並載入模型，再執行此工具"
+        echo -e "  ${DIM}（確認模型 ID：curl $LMSTUDIO_URL）${RESET}"
+        echo ""
+        exit 1
+    fi
+}
+
+# ── 影片選單 ───────────────────────────────────────────────────────────────────
+
+collect_videos() {
+    VIDEOS=()
+    for ext in mp4 mov mkv avi m4v webm flv wmv; do
+        for f in "$INPUT_DIR"/*."$ext" "$INPUT_DIR"/*."$(echo "$ext" | tr '[:lower:]' '[:upper:]')"; do
+            [ -f "$f" ] && VIDEOS+=("$f")
+        done
+    done
+    IFS=$'\n' VIDEOS=($(printf '%s\n' "${VIDEOS[@]}" | sort -u))
+    unset IFS
+}
+
+choose_video() {
+    collect_videos
+
+    if [ ${#VIDEOS[@]} -eq 0 ]; then
+        echo ""
+        echo -e "  ${YELLOW}⚠️   input/ 資料夾沒有影片${RESET}"
+        echo -e "  請將影片放入：${DIM}${INPUT_DIR}/${RESET}"
+        echo ""
+        exit 1
+    fi
+
+    echo -e "${BOLD}── 選擇影片 ────────────────────────────────${RESET}"
+    echo ""
+
+    local i=1
+    for f in "${VIDEOS[@]}"; do
+        local name size
+        name=$(basename "$f")
+        size=$(du -sh "$f" 2>/dev/null | cut -f1)
+        printf "  ${BOLD}%d)${RESET} %-40s ${DIM}%s${RESET}\n" "$i" "$name" "$size"
+        (( i++ )) || true
+    done
+
+    local all_opt=""
+    if [ ${#VIDEOS[@]} -gt 1 ]; then
+        printf "  ${BOLD}%d)${RESET} 全部處理\n" "$i"
+        all_opt="$i"
+    fi
+
+    echo ""
+    local choice
+    read -rp "  選擇 (q 退出): " choice
+
+    [ "$choice" = "q" ] && echo "" && exit 0
+
+    if [ -n "$all_opt" ] && [ "$choice" = "$all_opt" ]; then
+        SELECTED_FILES=("${VIDEOS[@]}")
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VIDEOS[@]}" ]; then
+        SELECTED_FILES=("${VIDEOS[$(( choice - 1 ))]}")
+    else
+        echo "  無效選擇，請重新執行"
+        exit 1
+    fi
+}
+
+# ── 確認並執行 ─────────────────────────────────────────────────────────────────
+
+confirm_and_run() {
+    echo ""
+    echo -e "${BOLD}── 確認設定 ────────────────────────────────${RESET}"
+    echo ""
+
+    for f in "${SELECTED_FILES[@]}"; do
+        echo -e "  📄  $(basename "$f")"
+    done
+
+    # 讀取 config.py 中的模型名稱顯示
+    local seg_model tgt_lang
+    seg_model=$("$PYTHON" -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import SEGMENT_MODEL, TRANSLATE_TARGET_LANG; print(SEGMENT_MODEL)" 2>/dev/null || echo "未知")
+    tgt_lang=$("$PYTHON"  -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import TRANSLATE_TARGET_LANG; print(TRANSLATE_TARGET_LANG)" 2>/dev/null || echo "zh-TW")
+
+    echo -e "  🤖  模型：${CYAN}${BOLD}${seg_model}${RESET}  ${DIM}(local/config.py)${RESET}"
+    echo -e "  🌐  翻譯：${tgt_lang}"
+    echo ""
+
+    local confirm
+    read -rp "  開始處理？[Y/n]: " confirm
+    confirm="${confirm:-y}"
+
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        echo ""
+        for f in "${SELECTED_FILES[@]}"; do
+            "$PYTHON" "$SCRIPT_DIR/local/run.py" "$f"
+        done
+        echo -e "  ${GREEN}${BOLD}✓  全部完成${RESET}"
+        echo ""
+    else
+        echo ""
+        echo -e "  ${DIM}已取消${RESET}"
+        echo ""
+    fi
+}
+
+# ── 主流程 ─────────────────────────────────────────────────────────────────────
+
+echo ""
+echo -e "  ${BOLD}🎬  subtitle_processor${RESET}"
+
+# 確認 Python 環境
+if [ ! -x "$PYTHON" ]; then
+    echo ""
+    echo -e "  ${YELLOW}⚠️   找不到 Python 環境${RESET}"
+    echo -e "  請先執行 ${BOLD}./transcribe${RESET} 完成環境安裝"
+    echo ""
+    exit 1
+fi
+
+# 確認 LM Studio
+check_lmstudio
+
+# ── 進階模式：直接傳參略過互動 ──────────────────────────────────────────────────
+if [ $# -ge 1 ]; then
+    echo ""
+    exec "$PYTHON" "$SCRIPT_DIR/local/run.py" "$1"
+fi
+
+# ── 互動模式 ────────────────────────────────────────────────────────────────────
+echo ""
+
+choose_video
+confirm_and_run
