@@ -42,7 +42,7 @@ def normalize_cht(text: str) -> str:
     text = _CHT_REMOVE.sub('', text)
     text = _CHT_TO_SPC.sub(_FWSP, text)
     text = _MULTI_FWSP.sub(_FWSP, text)
-    return text.strip('\u3000 \t')
+    return text.strip('\u3000 \t\n')
 
 
 def load_segments(tmpdir: str) -> list[dict]:

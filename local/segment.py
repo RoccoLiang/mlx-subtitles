@@ -86,6 +86,21 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> li
         try:
             content = call_api(messages)
             raw_segments = extract_json_array(content)
+            result = []
+            skipped = 0
+            for seg in raw_segments:
+                ws = int(seg["word_start"])
+                we = int(seg["word_end"])
+                if ws < 0 or we >= len(words) or ws > we:
+                    skipped += 1
+                    continue
+                result.append({
+                    "src":        seg["src"].strip(),
+                    "start":      words[ws]["start"],
+                    "end":        words[we]["end"],
+                    "word_start": ws,
+                    "word_end":   we,
+                })
             break
         except Exception as e:
             last_err = e
@@ -94,21 +109,6 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> li
     else:
         raise RuntimeError(f"Batch {batch_num} failed after {max_retries + 1} attempts: {last_err}")
 
-    result = []
-    skipped = 0
-    for seg in raw_segments:
-        ws = int(seg["word_start"])
-        we = int(seg["word_end"])
-        if ws < 0 or we >= len(words) or ws > we:
-            skipped += 1
-            continue
-        result.append({
-            "src":        seg["src"].strip(),
-            "start":      words[ws]["start"],
-            "end":        words[we]["end"],
-            "word_start": ws,
-            "word_end":   we,
-        })
     if skipped:
         print(f" ⚠ {skipped} invalid segment(s) skipped", end="", flush=True)
     return result

@@ -141,9 +141,10 @@ def main() -> None:
             print(f"  Batch (segments {offset}–{end_idx})...", end=" ", flush=True)
 
             last_err = None
-            translations = None
+            translations = []
             success = False
-            for attempt in range(3):
+            _MAX_ATTEMPTS = 3
+            for attempt in range(_MAX_ATTEMPTS):
                 try:
                     translations = translate_chat_batch(batch)
                     filled = sum(1 for t in translations if t)
@@ -153,7 +154,7 @@ def main() -> None:
                     break
                 except Exception as e:
                     last_err = e
-                    if attempt < 2:
+                    if attempt < _MAX_ATTEMPTS - 1:
                         print(f"(retry {attempt + 1})...", end=" ", flush=True)
             if not success:
                 raise RuntimeError(f"Batch failed: {last_err}")

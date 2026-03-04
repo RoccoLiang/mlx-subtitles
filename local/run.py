@@ -191,7 +191,7 @@ def print_section(title: str) -> None:
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         print(__doc__)
-        sys.exit(0 if "--help" in sys.argv else 1)
+        sys.exit(0 if sys.argv[1] in ("-h", "--help") else 1)
 
     input_path = Path(sys.argv[1])
     if not input_path.is_absolute():
