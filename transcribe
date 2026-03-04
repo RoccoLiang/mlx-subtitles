@@ -1,77 +1,349 @@
 #!/bin/bash
-# transcribe - Generate word-level timestamps (.words.json) using mlx-whisper
+# transcribe — 互動式影片字幕轉錄工具（Apple Silicon 優化）
 #
-# Usage:
-#   ./transcribe                          # process all videos in input/
-#   ./transcribe video.mp4               # process a single file
-#   ./transcribe video.mp4 medium        # specify model size
-#   ./transcribe video.mp4 large-v3 ja   # specify model and source language
+# 首次執行：自動偵測硬體、建立環境、推薦最佳模型
+# 後續執行：互動式選單選擇影片、模型、語言
 #
-# Models: large-v3 (default), large-v3-turbo, medium, small
-# Languages: en, ja, zh, fr, de, es, ... (default: auto-detect)
+# 進階用法（直接傳參，略過互動）：
+#   ./transcribe video.mp4                    # 使用預設模型
+#   ./transcribe video.mp4 medium             # 指定模型
+#   ./transcribe video.mp4 large-v3 ja        # 指定模型 + 語言
+#   ./transcribe --reset                      # 重新偵測硬體設定
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/.venv"
 PYTHON="$VENV_DIR/bin/python"
+CONFIG_FILE="$SCRIPT_DIR/.mlx-config"
+INPUT_DIR="$SCRIPT_DIR/input"
+OUTPUT_DIR="$SCRIPT_DIR/output"
 
-# ── Environment setup ──────────────────────────────────────────────────────────
+# ── 顏色 ───────────────────────────────────────────────────────────────────────
+if [ -t 1 ]; then
+    BOLD='\033[1m'; DIM='\033[2m'; GREEN='\033[32m'
+    CYAN='\033[36m'; YELLOW='\033[33m'; RESET='\033[0m'
+else
+    BOLD=''; DIM=''; GREEN=''; CYAN=''; YELLOW=''; RESET=''
+fi
+
+# ── 硬體偵測 ───────────────────────────────────────────────────────────────────
+
+detect_hardware() {
+    # 取得晶片型號（system_profiler 最準確，但較慢，只在首次執行時呼叫）
+    CHIP=$(system_profiler SPHardwareDataType 2>/dev/null \
+        | awk -F': ' '/Chip:/{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')
+    [ -z "$CHIP" ] && CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | xargs)
+    [ -z "$CHIP" ] && CHIP="Apple Silicon（未知型號）"
+
+    RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+    RAM_GB=$(( RAM_BYTES / 1024 / 1024 / 1024 ))
+}
+
+recommend_model() {
+    local chip="$1" ram="$2" chip_lower
+    chip_lower=$(echo "$chip" | tr '[:upper:]' '[:lower:]')
+
+    # Max / Ultra 系列：記憶體頻寬大，用最高精度模型
+    if echo "$chip_lower" | grep -qE "(max|ultra)"; then
+        echo "large-v3"
+    # 32 GB 以上統一用 large-v3
+    elif [ "$ram" -ge 32 ]; then
+        echo "large-v3"
+    # Pro 系列或 16 GB：平衡速度與精度
+    elif echo "$chip_lower" | grep -qE "pro"; then
+        echo "large-v3-turbo"
+    elif [ "$ram" -ge 16 ]; then
+        echo "large-v3-turbo"
+    # 8 GB：選 medium
+    elif [ "$ram" -ge 8 ]; then
+        echo "medium"
+    else
+        echo "small"
+    fi
+}
+
+# ── 環境設置 ───────────────────────────────────────────────────────────────────
 
 setup_env() {
-    # 1. Check uv
     if ! command -v uv &>/dev/null; then
-        echo "ERROR: uv not found."
-        echo "Install with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+        echo ""
+        echo "  錯誤：未找到 uv 套件管理器"
+        echo "  安裝指令：curl -LsSf https://astral.sh/uv/install.sh | sh"
+        echo ""
         exit 1
     fi
 
-    # 2. Remove incompatible venv (e.g. synced from another machine)
     if [ -d "$VENV_DIR" ] && [ ! -x "$PYTHON" ]; then
-        echo "Removing incompatible virtual environment..."
+        echo "  移除不相容的虛擬環境..."
         rm -rf "$VENV_DIR"
     fi
 
-    # 3. Create venv if missing
     if [ ! -d "$VENV_DIR" ]; then
-        echo "Creating virtual environment..."
-        uv venv "$VENV_DIR"
+        echo "  建立虛擬環境..."
+        uv venv "$VENV_DIR" --quiet
     fi
 
-    # 4. Install packages
-    echo "Installing packages (~200 MB, model weights will download on first transcription)..."
-    uv pip install --python "$VENV_DIR" -r "$SCRIPT_DIR/requirements.txt"
+    if ! "$PYTHON" -c "import mlx_whisper" 2>/dev/null; then
+        echo "  安裝套件（約 200 MB）..."
+        echo "  首次轉錄時會另外下載 Whisper 模型權重"
+        echo ""
+        uv pip install --python "$VENV_DIR" -r "$SCRIPT_DIR/requirements.txt"
+        echo ""
+    fi
+}
 
+# ── 首次執行 ───────────────────────────────────────────────────────────────────
+
+first_run_setup() {
     echo ""
-    echo "✓ Environment ready"
+    echo -e "  ${BOLD}⚙️  首次執行：偵測硬體環境${RESET}"
+    echo ""
+
+    detect_hardware
+
+    local recommended
+    recommended=$(recommend_model "$CHIP" "$RAM_GB")
+
+    echo -e "  💻  ${BOLD}${CHIP}${RESET} · ${RAM_GB} GB"
+    echo ""
+    echo -e "  依據您的硬體，建議使用模型：${CYAN}${BOLD}${recommended}${RESET}"
+    echo ""
+
+    # 儲存設定
+    cat > "$CONFIG_FILE" <<EOF
+CHIP="${CHIP}"
+RAM_GB=${RAM_GB}
+DEFAULT_MODEL=${recommended}
+EOF
+
+    echo -e "  ✓  硬體設定已儲存（如需重新偵測：${DIM}./transcribe --reset${RESET}）"
+    echo ""
+    echo -e "  ${BOLD}📦  設置 Python 環境${RESET}"
+    echo ""
+    setup_env
+    echo -e "  ${GREEN}✓  環境就緒${RESET}"
     echo ""
 }
 
-# ── Check environment ──────────────────────────────────────────────────────────
+# ── 互動式選單 ─────────────────────────────────────────────────────────────────
 
-# Python binary missing or broken (dead symlink)?
-if [ ! -x "$PYTHON" ]; then
-    echo "Setting up environment..."
+collect_videos() {
+    VIDEOS=()
+    for ext in mp4 mov mkv avi m4v webm flv wmv; do
+        for f in "$INPUT_DIR"/*."$ext" "$INPUT_DIR"/*."${ext^^}"; do
+            [ -f "$f" ] && VIDEOS+=("$f")
+        done
+    done
+    # 排序去重
+    IFS=$'\n' VIDEOS=($(printf '%s\n' "${VIDEOS[@]}" | sort -u))
+    unset IFS
+}
+
+choose_video() {
+    collect_videos
+
+    if [ ${#VIDEOS[@]} -eq 0 ]; then
+        echo ""
+        echo -e "  ${YELLOW}⚠️   input/ 資料夾沒有影片${RESET}"
+        echo -e "  請將影片放入：${DIM}${INPUT_DIR}/${RESET}"
+        echo ""
+        exit 1
+    fi
+
+    echo -e "${BOLD}── 選擇影片 ────────────────────────────────${RESET}"
+    echo ""
+
+    local i=1
+    for f in "${VIDEOS[@]}"; do
+        local size name
+        name=$(basename "$f")
+        size=$(du -sh "$f" 2>/dev/null | cut -f1)
+        printf "  ${BOLD}%d)${RESET} %-40s ${DIM}%s${RESET}\n" "$i" "$name" "$size"
+        (( i++ )) || true
+    done
+
+    local all_opt=""
+    if [ ${#VIDEOS[@]} -gt 1 ]; then
+        printf "  ${BOLD}%d)${RESET} 全部處理\n" "$i"
+        all_opt="$i"
+    fi
+
+    echo ""
+    local choice
+    read -rp "  選擇 [1]: " choice
+    choice="${choice:-1}"
+
+    if [ -n "$all_opt" ] && [ "$choice" = "$all_opt" ]; then
+        SELECTED_FILES=("${VIDEOS[@]}")
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#VIDEOS[@]}" ]; then
+        SELECTED_FILES=("${VIDEOS[$(( choice - 1 ))]}")
+    else
+        echo "  無效選擇，請重新執行"
+        exit 1
+    fi
+}
+
+choose_model() {
+    local current="${DEFAULT_MODEL:-large-v3-turbo}"
+
+    # 數字 → 模型名稱
+    local -a model_names=("large-v3" "large-v3-turbo" "medium" "small")
+    local -a model_desc=(
+        "~3 GB · 最高精度"
+        "~1.6 GB · 速度與精度平衡"
+        "~1.5 GB · 較快"
+        "~500 MB · 測試用"
+    )
+
+    # 找出建議選項的編號
+    local default_num=2
+    for i in "${!model_names[@]}"; do
+        if [ "${model_names[$i]}" = "$current" ]; then
+            default_num=$(( i + 1 ))
+        fi
+    done
+
+    echo ""
+    echo -e "${BOLD}── 選擇模型 ────────────────────────────────${RESET}"
+    echo ""
+    for i in "${!model_names[@]}"; do
+        local num=$(( i + 1 ))
+        local tag=""
+        [ "$num" -eq "$default_num" ] && tag=" ${CYAN}← 建議${RESET}"
+        printf "  ${BOLD}%d)${RESET} %-18s ${DIM}%s${RESET}%b\n" \
+            "$num" "${model_names[$i]}" "${model_desc[$i]}" "$tag"
+    done
+
+    echo ""
+    local choice
+    read -rp "  選擇 [${default_num}]: " choice
+    choice="${choice:-$default_num}"
+
+    if [[ "$choice" =~ ^[1-4]$ ]]; then
+        SELECTED_MODEL="${model_names[$(( choice - 1 ))]}"
+    else
+        SELECTED_MODEL="$current"
+    fi
+}
+
+choose_language() {
+    echo ""
+    echo -e "${BOLD}── 來源語言 ────────────────────────────────${RESET}"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} 自動偵測  ${CYAN}← 建議${RESET}"
+    echo -e "  ${BOLD}2)${RESET} 英文 (en)"
+    echo -e "  ${BOLD}3)${RESET} 日文 (ja)"
+    echo -e "  ${BOLD}4)${RESET} 中文 (zh)"
+    echo -e "  ${BOLD}5)${RESET} 其他（手動輸入）"
+    echo ""
+
+    local choice
+    read -rp "  選擇 [1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) SELECTED_LANG="" ;;
+        2) SELECTED_LANG="en" ;;
+        3) SELECTED_LANG="ja" ;;
+        4) SELECTED_LANG="zh" ;;
+        5)
+            read -rp "  輸入語言代碼（如 fr、de、ko）: " SELECTED_LANG
+            ;;
+        *) SELECTED_LANG="" ;;
+    esac
+}
+
+confirm_and_run() {
+    echo ""
+    echo -e "${BOLD}── 確認設定 ────────────────────────────────${RESET}"
+    echo ""
+
+    for f in "${SELECTED_FILES[@]}"; do
+        echo -e "  📄  $(basename "$f")"
+    done
+
+    echo -e "  🔧  模型：${CYAN}${BOLD}${SELECTED_MODEL}${RESET}"
+
+    if [ -n "${SELECTED_LANG:-}" ]; then
+        echo -e "  🌐  語言：${SELECTED_LANG}"
+    else
+        echo -e "  🌐  語言：自動偵測"
+    fi
+
+    echo ""
+    local confirm
+    read -rp "  開始轉錄？[Y/n]: " confirm
+    confirm="${confirm:-y}"
+
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        echo ""
+        for f in "${SELECTED_FILES[@]}"; do
+            local args=(--file "$f" --model "$SELECTED_MODEL")
+            [ -n "${SELECTED_LANG:-}" ] && args+=(--language "$SELECTED_LANG")
+            "$PYTHON" "$SCRIPT_DIR/scripts/generate_subtitles.py" "${args[@]}"
+        done
+        echo ""
+        echo -e "  ${GREEN}${BOLD}✓  轉錄完成${RESET}"
+        echo ""
+        echo -e "  下一步：在 Claude Code 執行"
+        echo -e "  ${BOLD}/translate-ass input/$(basename "${SELECTED_FILES[0]}")${RESET}"
+        [ ${#SELECTED_FILES[@]} -gt 1 ] && echo -e "  ${DIM}（其他影片同樣執行 /translate-ass）${RESET}"
+        echo ""
+    else
+        echo ""
+        echo -e "  ${DIM}已取消${RESET}"
+        echo ""
+    fi
+}
+
+# ── 主流程 ─────────────────────────────────────────────────────────────────────
+
+echo ""
+echo -e "  ${BOLD}🎬  mlx-subtitles${RESET}"
+
+# --reset：刪除設定檔，重新偵測
+if [ "${1:-}" = "--reset" ]; then
+    rm -f "$CONFIG_FILE"
+    echo ""
+    echo "  已刪除硬體設定，重新初始化..."
+    first_run_setup
+    source "$CONFIG_FILE"
+# 首次執行
+elif [ ! -f "$CONFIG_FILE" ]; then
+    first_run_setup
+    source "$CONFIG_FILE"
+else
+    source "$CONFIG_FILE"
+fi
+
+# 確保環境就緒
+if [ ! -x "$PYTHON" ] || ! "$PYTHON" -c "import mlx_whisper" 2>/dev/null; then
+    echo ""
+    echo -e "  Python 環境需要更新..."
+    echo ""
     setup_env
 fi
 
-# Packages importable?
-if ! "$PYTHON" -c "import mlx_whisper" 2>/dev/null; then
-    echo "Packages missing, installing..."
-    uv pip install --python "$VENV_DIR" -r "$SCRIPT_DIR/requirements.txt"
+# ── 進階模式：直接傳參略過互動 ──────────────────────────────────────────────────
+if [ $# -ge 1 ] && [ "${1:-}" != "--reset" ]; then
+    ARGS=()
+    case $# in
+        1) ARGS=(--file "$1" --model "${DEFAULT_MODEL:-large-v3-turbo}") ;;
+        2) ARGS=(--file "$1" --model "$2") ;;
+        3) ARGS=(--file "$1" --model "$2" --language "$3") ;;
+        *) echo "  用法：transcribe [影片] [模型] [語言]"; exit 1 ;;
+    esac
     echo ""
+    exec "$PYTHON" "$SCRIPT_DIR/scripts/generate_subtitles.py" "${ARGS[@]}"
 fi
 
-# ── Run ────────────────────────────────────────────────────────────────────────
+# ── 互動模式 ────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "  💻  ${BOLD}${CHIP}${RESET} · ${RAM_GB} GB   ${DIM}（預設模型：${DEFAULT_MODEL}）${RESET}"
+echo ""
 
-ARGS=()
-
-case $# in
-    0) ;;
-    1) ARGS=(--file "$1") ;;
-    2) ARGS=(--file "$1" --model "$2") ;;
-    3) ARGS=(--file "$1" --model "$2" --language "$3") ;;
-    *) echo "Usage: transcribe [video_file] [model] [language]"; exit 1 ;;
-esac
-
-exec "$PYTHON" "$SCRIPT_DIR/scripts/generate_subtitles.py" "${ARGS[@]}"
+choose_video
+choose_model
+choose_language
+confirm_and_run

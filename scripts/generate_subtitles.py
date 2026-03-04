@@ -63,11 +63,21 @@ def main():
                         help=f'Whisper model (default: {DEFAULT_MODEL})')
     parser.add_argument('--output', default=None, help='Output directory (default: <project>/output)')
     parser.add_argument('--language', default=None, help='Source language code, e.g. en, ja, zh (default: auto-detect)')
+    parser.add_argument('--skip-existing', action='store_true', help='Skip files that already have a words.json')
     args = parser.parse_args()
 
     project_root = Path(__file__).parent.parent
     output_dir = Path(args.output) if args.output else project_root / 'output'
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    def should_skip(video_path: Path) -> bool:
+        if not args.skip_existing:
+            return False
+        out = output_dir / f"{video_path.stem}.words.json"
+        if out.exists():
+            print(f"  Skipping (already exists): {out}")
+            return True
+        return False
 
     if args.file:
         video_path = Path(args.file)
@@ -76,7 +86,8 @@ def main():
         if not video_path.exists():
             print(f"ERROR: File not found: {video_path}", file=sys.stderr)
             sys.exit(1)
-        transcribe_file(video_path, output_dir, args.model, args.language)
+        if not should_skip(video_path):
+            transcribe_file(video_path, output_dir, args.model, args.language)
     else:
         input_dir = project_root / 'input'
         videos = sorted(f for f in input_dir.iterdir() if f.suffix.lower() in SUPPORTED_FORMATS)
@@ -84,7 +95,8 @@ def main():
             print(f"No videos found in {input_dir}", file=sys.stderr)
             sys.exit(1)
         for v in videos:
-            transcribe_file(v, output_dir, args.model, args.language)
+            if not should_skip(v):
+                transcribe_file(v, output_dir, args.model, args.language)
 
 
 if __name__ == '__main__':
