@@ -14,6 +14,7 @@ Output:
 import json
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 try:
@@ -119,7 +120,7 @@ def main() -> None:
         sys.exit(1)
 
     words_path = Path(sys.argv[1])
-    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("/tmp")
+    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(tempfile.gettempdir())
 
     if not words_path.exists():
         print(f"ERROR: File not found: {words_path}", file=sys.stderr)

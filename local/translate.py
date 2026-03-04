@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Step B: Translate subtitle segments via LM Studio (TranslateGemma 27B).
+Step B: Translate subtitle segments via LM Studio.
 
 Usage:
     python local/translate.py <segments_dir> [output_dir]

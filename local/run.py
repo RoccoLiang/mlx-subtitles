@@ -25,6 +25,7 @@ PYTHON       = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
 LOCAL_DIR    = PROJECT_ROOT / "local"
 SCRIPTS_DIR  = PROJECT_ROOT / "scripts"
+INPUT_DIR    = PROJECT_ROOT / "input"
 OUTPUT_DIR   = PROJECT_ROOT / "output"
 TMP_DIR      = Path(tempfile.gettempdir())
 
@@ -107,7 +108,7 @@ def fix_words_json(words_json: Path) -> None:
 
 # 常見不需列出的大寫詞
 _COMMON_CAPS = {
-    "i", "i'm", "i've", "i'll", "i'd", "i've",
+    "i", "i'm", "i've", "i'll", "i'd",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
     "january", "february", "march", "april", "june", "july", "august",
     "september", "october", "november", "december",
@@ -137,9 +138,9 @@ def detect_proper_nouns(tmp_dir: Path) -> list[str]:
     counts: dict[str, int] = {}
     for seg in results:
         words_in_seg = seg.get("src", "").split()
-        for i, word in enumerate(words_in_seg):
+        for word_idx, word in enumerate(words_in_seg):
             clean = re.sub(r"[^a-zA-Z'&-]", "", word)
-            if len(clean) < 2 or i == 0:
+            if len(clean) < 2 or word_idx == 0:
                 continue
             if clean[0].isupper() and clean.lower() not in _COMMON_CAPS and clean.lower() not in known:
                 counts[clean] = counts.get(clean, 0) + 1
@@ -199,6 +200,9 @@ def main() -> None:
     if not input_path.exists():
         print(f"ERROR: 找不到檔案：{input_path}", file=sys.stderr)
         sys.exit(1)
+
+    # Clean up any stale temp files from a previous interrupted run
+    cleanup_tmp()
 
     words_json = resolve_words_json(input_path)
 

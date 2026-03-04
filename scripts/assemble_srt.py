@@ -117,7 +117,7 @@ def main() -> None:
     # Determine output stem
     if input_file:
         stem = input_file
-        for ext in (".mp4", ".mkv", ".mov", ".avi", ".m4v", ".words.json"):
+        for ext in (".mp4", ".mkv", ".mov", ".avi", ".m4v", ".webm", ".flv", ".wmv", ".words.json"):
             if stem.endswith(ext):
                 stem = stem[: -len(ext)]
                 break
