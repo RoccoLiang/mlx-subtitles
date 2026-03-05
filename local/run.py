@@ -14,10 +14,12 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Final
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 VENV_PYTHON  = PROJECT_ROOT / ".venv" / "bin" / "python"
@@ -29,6 +31,19 @@ INPUT_DIR    = PROJECT_ROOT / "input"
 OUTPUT_DIR   = PROJECT_ROOT / "output"
 TMP_DIR      = Path(tempfile.gettempdir())
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+SUPPORTED_VIDEO_EXTS: Final[tuple[str, ...]] = ("mp4", "mov", "mkv", "avi", "m4v", "webm", "flv", "wmv")
+
+# Common capitalized words that don't need to be listed
+_COMMON_CAPS: Final[frozenset[str]] = frozenset({
+    "i", "i'm", "i've", "i'll", "i'd",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "january", "february", "march", "april", "may", "june", "july", "august",
+    "september", "october", "november", "december",
+    "english", "chinese", "japanese", "french", "german", "dutch", "spanish",
+    "american", "european", "british", "yes", "no", "ok", "okay",
+})
+
 sys.path.insert(0, str(LOCAL_DIR))
 from config import SEGMENT_MODEL, TRANSLATE_MODEL
 
@@ -37,6 +52,17 @@ def run(cmd: list) -> None:
     result = subprocess.run(cmd)
     if result.returncode != 0:
         sys.exit(result.returncode)
+
+
+def validate_input_path(path: Path) -> Path:
+    """Validate and resolve input path, preventing path traversal."""
+    resolved = path.resolve()
+
+    allowed_parents = [PROJECT_ROOT, INPUT_DIR, OUTPUT_DIR]
+    if not any(resolved.is_relative_to(p) for p in allowed_parents):
+        raise ValueError(f"Path not allowed: {path}")
+
+    return resolved
 
 
 def resolve_words_json(input_file: Path) -> Path:
@@ -55,35 +81,42 @@ def resolve_words_json(input_file: Path) -> Path:
     return words_json
 
 
-_VIDEO_EXTS = ("mp4", "mov", "mkv", "avi", "m4v", "webm", "flv", "wmv")
-
-
 def resolve_video_path(input_path: Path) -> Path:
-    """Return the video file path to use as the SRT output base.
-
-    If input is already a video file, return it directly.
-    If input is a words.json, look for the corresponding video in input/.
-    Falls back to input_path if no matching video is found.
-    """
+    """Return the video file path for SRT output location."""
     if not input_path.name.endswith(".words.json"):
-        return input_path  # already a video
+        return input_path
 
-    stem = input_path.name[: -len(".words.json")]  # e.g. "video" from "video.words.json"
-    for ext in _VIDEO_EXTS:
+    stem = input_path.name[:-len(".words.json")]
+    for ext in SUPPORTED_VIDEO_EXTS:
         candidate = INPUT_DIR / f"{stem}.{ext}"
         if candidate.exists():
             return candidate
-    return input_path  # fallback: output next to words.json
+    return input_path
+
+
+def backup_file(path: Path) -> Path:
+    """Create timestamped backup of a file."""
+    if not path.exists():
+        return path
+
+    backup_path = path.with_suffix(path.suffix + f".bak.{int(path.stat().st_mtime)}")
+    shutil.copy2(path, backup_path)
+    return backup_path
 
 
 def fix_words_json(words_json: Path) -> None:
-    """Apply glossary corrections to words.json (in-place)."""
+    """Apply glossary corrections to words.json with backup."""
     from glossary import load_corrections
     corrections = load_corrections()
     if not corrections:
         return
 
-    # Build case-insensitive lookup: lower(wrong) → correct
+    # Create backup before modification
+    backup_path = backup_file(words_json)
+    if backup_path != words_json:
+        print(f"  Backup: {backup_path.name}")
+
+    # Build case-insensitive lookup
     lookup = {k.lower(): v for k, v in corrections.items()}
 
     with open(words_json, encoding="utf-8") as f:
@@ -94,16 +127,21 @@ def fix_words_json(words_json: Path) -> None:
         stripped = entry["word"].strip()
         if stripped.lower() in lookup:
             correct = lookup[stripped.lower()]
-            # Preserve leading/trailing whitespace from original
             leading = len(entry["word"]) - len(entry["word"].lstrip())
             trailing = len(entry["word"]) - len(entry["word"].rstrip())
-            entry["word"] = entry["word"][:leading] + correct + (entry["word"][len(entry["word"]) - trailing:] if trailing else "")
+            entry["word"] = entry["word"][:leading] + correct + (
+                entry["word"][len(entry["word"]) - trailing:] if trailing else ""
+            )
             fixed += 1
 
     if fixed:
         with open(words_json, "w", encoding="utf-8") as f:
             json.dump(words, f, ensure_ascii=False, indent=2)
         print(f"  詞條修正：{fixed} 處")
+    else:
+        # No changes, remove backup
+        if backup_path != words_json:
+            backup_path.unlink(missing_ok=True)
 
 
 # 常見不需列出的大寫詞
@@ -118,7 +156,7 @@ _COMMON_CAPS = {
 
 
 def detect_proper_nouns(tmp_dir: Path) -> list[str]:
-    """Scan translated segments for mid-sentence capitalized words not in glossary."""
+    """Scan translated segments for mid-sentence capitalized words."""
     results = []
     i = 0
     while True:
@@ -142,7 +180,9 @@ def detect_proper_nouns(tmp_dir: Path) -> list[str]:
             clean = re.sub(r"[^a-zA-Z'&-]", "", word)
             if len(clean) < 2 or word_idx == 0:
                 continue
-            if clean[0].isupper() and clean.lower() not in _COMMON_CAPS and clean.lower() not in known:
+            if (clean[0].isupper() and
+                clean.lower() not in _COMMON_CAPS and
+                clean.lower() not in known):
                 counts[clean] = counts.get(clean, 0) + 1
 
     return sorted(counts, key=lambda x: -counts[x])
@@ -188,7 +228,8 @@ def print_section(title: str) -> None:
     print(f"\n── {title} {'─' * (44 - len(title))}")
 
 
-def main() -> None:
+def parse_arguments() -> Path:
+    """Parse command line arguments."""
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -196,26 +237,24 @@ def main() -> None:
         print(__doc__)
         sys.exit(0)
 
-    input_path = Path(sys.argv[1])
-    if not input_path.is_absolute():
-        input_path = PROJECT_ROOT / input_path
+    return validate_input_path(Path(sys.argv[1]))
 
-    if not input_path.exists():
-        print(f"ERROR: 找不到檔案：{input_path}", file=sys.stderr)
-        sys.exit(1)
 
-    # Clean up any stale temp files from a previous interrupted run
+def main() -> None:
+    input_path = parse_arguments()
+
+    # Clean up any stale temp files
     cleanup_tmp()
 
+    # Resolve words.json (transcribe if needed)
     words_json = resolve_words_json(input_path)
 
-    # Resolve the video file for SRT output location:
-    # Always output .en.srt / .cht.srt next to the video in input/
+    # Resolve video path for SRT output location
     srt_base_path = resolve_video_path(input_path)
 
     print(f"\n  輸入：{words_json.name}")
 
-    # Glossary post-processing: fix known misspellings in words.json
+    # Apply glossary corrections (with backup)
     fix_words_json(words_json)
 
     # Step A: segmentation

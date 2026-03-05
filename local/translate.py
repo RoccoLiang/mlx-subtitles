@@ -12,6 +12,7 @@ Writes: <output_dir>/_translated_result_*.json
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -25,16 +26,29 @@ from config import (
     LMSTUDIO_BASE_URL, TRANSLATE_MODEL, TRANSLATE_USE_NATIVE,
     TRANSLATE_SOURCE_LANG, TRANSLATE_TARGET_LANG,
     TRANSLATE_CHAT_BATCH_SIZE, TRANSLATE_MAX_TOKENS, REQUEST_TIMEOUT,
+    MAX_RETRIES, RETRY_BACKOFF_BASE,
 )
 from glossary import as_keep_list
 
 
 def _call(payload: dict) -> str:
     url = f"{LMSTUDIO_BASE_URL}/chat/completions"
-    resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
-    if not resp.ok:
-        raise RuntimeError(f"API error {resp.status_code}: {resp.text[:400]}")
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    try:
+        resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+        if not resp.ok:
+            raise RuntimeError(f"API error {resp.status_code}: {resp.text[:400]}")
+        data = resp.json()
+
+        if not data.get("choices"):
+            raise ValueError("API response missing 'choices'")
+        content = data["choices"][0].get("message", {}).get("content", "").strip()
+        if not content:
+            raise ValueError("API response has empty content")
+        return content
+    except requests.exceptions.Timeout:
+        raise TimeoutError(f"API request timed out after {REQUEST_TIMEOUT}s")
+    except requests.exceptions.RequestException as e:
+        raise ConnectionError(f"API request failed: {e}")
 
 
 def translate_native(text: str) -> str:
@@ -83,15 +97,17 @@ def translate_chat_batch(segments: list[dict]) -> list[str]:
     return [result.get(i + 1, "") for i in range(len(segments))]
 
 
-def translate_one(text: str, max_retries: int = 2) -> str:
+def translate_one(text: str, max_retries: int = MAX_RETRIES) -> str:
     last_err = None
-    for attempt in range(max_retries + 1):
+    for attempt in range(max_retries):
         try:
             return translate_native(text)
-        except Exception as e:
+        except (ValueError, TimeoutError, ConnectionError) as e:
             last_err = e
-            if attempt < max_retries:
-                print(f"(retry {attempt + 1})...", end=" ", flush=True)
+            if attempt < max_retries - 1:
+                wait_time = RETRY_BACKOFF_BASE ** attempt
+                print(f"(retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                time.sleep(wait_time)
     raise RuntimeError(f"Translation failed: {last_err}")
 
 
@@ -113,7 +129,7 @@ def main() -> None:
         print(__doc__)
         sys.exit(1)
 
-    segments_dir = Path(sys.argv[1])
+    segments_dir = Path(sys.argv[1]).resolve()
     output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else segments_dir
 
     segments = load_segments(segments_dir)
@@ -127,7 +143,6 @@ def main() -> None:
     print(f"  {TRANSLATE_SOURCE_LANG} → {TRANSLATE_TARGET_LANG}\n")
 
     results = []
-    _MAX_ATTEMPTS = 3
 
     if TRANSLATE_USE_NATIVE:
         for i, seg in enumerate(segments):
@@ -144,7 +159,7 @@ def main() -> None:
             last_err = None
             translations = []
             success = False
-            for attempt in range(_MAX_ATTEMPTS):
+            for attempt in range(MAX_RETRIES):
                 try:
                     translations = translate_chat_batch(batch)
                     filled = sum(1 for t in translations if t)
@@ -152,10 +167,12 @@ def main() -> None:
                         raise ValueError(f"Only {filled}/{len(batch)} parsed")
                     success = True
                     break
-                except Exception as e:
+                except (ValueError, TimeoutError, ConnectionError) as e:
                     last_err = e
-                    if attempt < _MAX_ATTEMPTS - 1:
-                        print(f"(retry {attempt + 1})...", end=" ", flush=True)
+                    if attempt < MAX_RETRIES - 1:
+                        wait_time = RETRY_BACKOFF_BASE ** attempt
+                        print(f"(retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                        time.sleep(wait_time)
             if not success:
                 raise RuntimeError(f"Batch failed: {last_err}")
 

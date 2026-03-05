@@ -6,12 +6,15 @@ Line formats:
     # 註解          ignored
 """
 
+import threading
 from pathlib import Path
+from typing import Final
 
-GLOSSARY_PATH = Path(__file__).parent / "glossary.txt"
+GLOSSARY_PATH: Final[Path] = Path(__file__).parent / "glossary.txt"
 
-# Module-level cache: avoid re-parsing on every call
+# Thread-safe module-level cache
 _cache: tuple[list[str], dict[str, str]] | None = None
+_cache_lock = threading.Lock()
 
 
 def _parse() -> tuple[list[str], dict[str, str]]:
@@ -20,24 +23,29 @@ def _parse() -> tuple[list[str], dict[str, str]]:
     if _cache is not None:
         return _cache
 
-    terms: list[str] = []
-    corrections: dict[str, str] = {}
-    if not GLOSSARY_PATH.exists():
+    with _cache_lock:
+        # Double-check after acquiring lock
+        if _cache is not None:
+            return _cache
+
+        terms: list[str] = []
+        corrections: dict[str, str] = {}
+        if not GLOSSARY_PATH.exists():
+            _cache = terms, corrections
+            return _cache
+
+        for line in GLOSSARY_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "->" in line:
+                wrong, _, correct = line.partition("->")
+                corrections[wrong.strip()] = correct.strip()
+            else:
+                terms.append(line)
+
         _cache = terms, corrections
         return _cache
-
-    for line in GLOSSARY_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "->" in line:
-            wrong, _, correct = line.partition("->")
-            corrections[wrong.strip()] = correct.strip()
-        else:
-            terms.append(line)
-
-    _cache = terms, corrections
-    return _cache
 
 
 def load_terms() -> list[str]:

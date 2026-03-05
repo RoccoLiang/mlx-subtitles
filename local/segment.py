@@ -15,7 +15,10 @@ import json
 import re
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 try:
     import requests
@@ -24,13 +27,19 @@ except ImportError:
     sys.exit(1)
 
 sys.path.insert(0, str(Path(__file__).parent))
-from config import LMSTUDIO_BASE_URL, SEGMENT_MODEL, SEGMENT_BATCH_SIZE, SEGMENT_MAX_TOKENS, REQUEST_TIMEOUT
+from config import (
+    LMSTUDIO_BASE_URL, SEGMENT_MODEL, SEGMENT_BATCH_SIZE,
+    SEGMENT_MAX_TOKENS, REQUEST_TIMEOUT, MAX_RETRIES, RETRY_BACKOFF_BASE,
+)
 
 SYSTEM_PROMPT = (
     "You are a subtitle segmentation assistant. "
     "Group consecutive words into natural subtitle segments. "
     "Return ONLY a valid JSON array — no explanation, no markdown fences."
 )
+
+# Validation schema for API responses
+REQUIRED_SEGMENT_FIELDS = {'src', 'word_start', 'word_end'}
 
 
 def build_user_prompt(words: list[dict]) -> str:
@@ -57,24 +66,49 @@ def call_api(messages: list[dict]) -> str:
         "temperature": 0.1,
         "max_tokens": SEGMENT_MAX_TOKENS,
     }
-    resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    try:
+        resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if not data.get("choices"):
+            raise ValueError("API response missing 'choices'")
+        content = data["choices"][0].get("message", {}).get("content", "")
+        if not content:
+            raise ValueError("API response has empty content")
+        return content
+    except requests.exceptions.Timeout:
+        raise TimeoutError(f"API request timed out after {REQUEST_TIMEOUT}s")
+    except requests.exceptions.RequestException as e:
+        raise ConnectionError(f"API request failed: {e}")
 
 
 def extract_json_array(text: str) -> list[dict]:
+    """Extract and validate JSON array from API response."""
     text = text.strip()
-    # Strip markdown code fences
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text.strip())
-    # Find outermost JSON array (match [ followed by { to avoid grabbing bracket-only text)
+
     m = re.search(r"\[[\s\S]*?\{[\s\S]*\}[\s\S]*?\]", text)
     if m:
         text = m.group(0)
-    return json.loads(text)
+
+    try:
+        data = json.loads(text)
+        if not isinstance(data, list):
+            raise ValueError(f"Expected JSON array, got {type(data).__name__}")
+        for i, seg in enumerate(data):
+            if not isinstance(seg, dict):
+                raise ValueError(f"Segment {i} is not a dict")
+            missing = REQUIRED_SEGMENT_FIELDS - set(seg.keys())
+            if missing:
+                raise ValueError(f"Segment {i} missing fields: {missing}")
+        return data
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON: {e}")
 
 
-def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> list[dict]:
+def segment_batch(words: list[dict], batch_num: int, max_retries: int = MAX_RETRIES) -> list[dict]:
     prompt = build_user_prompt(words)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -82,36 +116,49 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = 2) -> li
     ]
 
     last_err = None
-    for attempt in range(max_retries + 1):
+    for attempt in range(max_retries):
         try:
             content = call_api(messages)
             raw_segments = extract_json_array(content)
+
             result = []
             skipped = 0
             for seg in raw_segments:
-                ws = int(seg["word_start"])
-                we = int(seg["word_end"])
-                if ws < 0 or we >= len(words) or ws > we:
+                try:
+                    ws = int(seg["word_start"])
+                    we = int(seg["word_end"])
+                    if ws < 0 or we >= len(words) or ws > we:
+                        skipped += 1
+                        continue
+                    result.append({
+                        "src":        seg["src"].strip(),
+                        "start":      words[ws]["start"],
+                        "end":        words[we]["end"],
+                        "word_start": ws,
+                        "word_end":   we,
+                    })
+                except (KeyError, ValueError, TypeError):
                     skipped += 1
-                    continue
-                result.append({
-                    "src":        seg["src"].strip(),
-                    "start":      words[ws]["start"],
-                    "end":        words[we]["end"],
-                    "word_start": ws,
-                    "word_end":   we,
-                })
-            break
-        except Exception as e:
-            last_err = e
-            if attempt < max_retries:
-                print(f" (retry {attempt + 1})...", end=" ", flush=True)
-    else:
-        raise RuntimeError(f"Batch {batch_num} failed after {max_retries + 1} attempts: {last_err}")
 
-    if skipped:
-        print(f" ⚠ {skipped} invalid segment(s) skipped", end="", flush=True)
-    return result
+            if skipped:
+                print(f" ⚠ {skipped} invalid segment(s) skipped", end="", flush=True)
+            return result
+
+        except (ValueError, TimeoutError, ConnectionError) as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                wait_time = RETRY_BACKOFF_BASE ** attempt
+                print(f" (retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                time.sleep(wait_time)
+
+    raise RuntimeError(f"Batch {batch_num} failed after {max_retries} attempts: {last_err}")
+
+
+def process_batch_wrapper(args: tuple) -> tuple[int, list[dict]]:
+    """Wrapper for parallel batch processing."""
+    words, batch_num = args
+    segments = segment_batch(words, batch_num)
+    return batch_num, segments
 
 
 def main() -> None:
@@ -119,7 +166,7 @@ def main() -> None:
         print(__doc__)
         sys.exit(1)
 
-    words_path = Path(sys.argv[1])
+    words_path = Path(sys.argv[1]).resolve()
     output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(tempfile.gettempdir())
 
     if not words_path.exists():
@@ -132,22 +179,38 @@ def main() -> None:
     total = len(words)
     print(f"  Words: {total}  |  Model: {SEGMENT_MODEL}")
 
-    batch_num = 0
+    # Prepare batches
+    batches = []
     for offset in range(0, total, SEGMENT_BATCH_SIZE):
         batch = words[offset: offset + SEGMENT_BATCH_SIZE]
-        end_idx = offset + len(batch) - 1
-        print(f"  Batch {batch_num} (words {offset}–{end_idx})...", end=" ", flush=True)
+        batches.append((batch, len(batches)))
 
-        segments = segment_batch(batch, batch_num)
+    # Process in parallel
+    max_workers = min(4, len(batches))
+    results = {}
 
-        out_path = output_dir / f"_segments_result_{batch_num}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(segments, f, ensure_ascii=False, indent=2)
+    print(f"  Processing {len(batches)} batches with {max_workers} workers...")
 
-        print(f"{len(segments)} segments → {out_path}")
-        batch_num += 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_batch_wrapper, args): args[1] for args in batches}
 
-    print(f"  Step A done: {batch_num} batch(es) written")
+        for future in as_completed(futures):
+            batch_num = futures[future]
+            try:
+                batch_num, segments = future.result()
+                results[batch_num] = segments
+
+                out_path = output_dir / f"_segments_result_{batch_num}.json"
+                with open(out_path, "w", encoding="utf-8") as f:
+                    json.dump(segments, f, ensure_ascii=False, indent=2)
+
+                end_idx = batch_num * SEGMENT_BATCH_SIZE + len(segments) - 1
+                print(f"  Batch {batch_num}: {len(segments)} segments → {out_path.name}")
+            except Exception as e:
+                print(f"\n  ERROR: Batch {batch_num} failed: {e}", file=sys.stderr)
+                raise
+
+    print(f"  Step A done: {len(results)} batch(es) written")
 
 
 if __name__ == "__main__":
