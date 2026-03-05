@@ -3,15 +3,15 @@
 Assemble bilingual SRT subtitles from translated batch results.
 
 Usage:
-    python scripts/assemble_srt.py <tmpdir> [input_file]
+    python scripts/assemble_srt.py <tmpdir> [input_file] [--source-lang XX] [--target-lang XX]
 
 Arguments:
     tmpdir      Directory containing _translated_result_0.json, _translated_result_1.json, ...
     input_file  Optional: original video/words.json path (determines output .srt filename)
 
 Outputs:
-    <stem>.en.srt   — English source subtitles
-    <stem>.cht.srt  — Traditional Chinese translated subtitles
+    <stem>.<src_ext>.srt  — Source language subtitles
+    <stem>.<tgt_ext>.srt  — Target language subtitles
 """
 
 import json
@@ -21,7 +21,13 @@ import sys
 
 HOLD_TIME = 0.4  # Seconds subtitle lingers after last word ends
 
-# ── Chinese SRT normalisation ──────────────────────────────────────────────────
+LANG_SRT_EXT = {
+    "en":    "en",
+    "zh-TW": "cht",
+    "ja":    "jp",
+}
+
+# ── CJK SRT normalisation ─────────────────────────────────────────────────────
 _FWSP        = '\u3000'                      # 全形空格（與中文字等寬）
 _CHT_REMOVE  = re.compile(r'[。]')          # full stop — always remove
 _CHT_TO_SPC  = re.compile(r'[，、；]')      # commas / semicolons → 全形空格
@@ -43,6 +49,31 @@ def normalize_cht(text: str) -> str:
     text = _CHT_TO_SPC.sub(_FWSP, text)
     text = _MULTI_FWSP.sub(_FWSP, text)
     return text.strip('\u3000 \t\n')
+
+
+_JP_REMOVE  = re.compile(r'[。]')
+_JP_TO_SPC  = re.compile(r'[、；]')
+
+
+def normalize_jp(text: str) -> str:
+    """Apply Japanese SRT formatting conventions.
+
+    - Removes sentence-ending periods (。)
+    - Replaces enumeration marks (、；) with a full-width space (　)
+    - Collapses consecutive full-width spaces to one
+    - Preserves semantic punctuation: ？！…《》「」『』〈〉—
+    - Strips leading/trailing whitespace (half- and full-width)
+    """
+    text = _JP_REMOVE.sub('', text)
+    text = _JP_TO_SPC.sub(_FWSP, text)
+    text = _MULTI_FWSP.sub(_FWSP, text)
+    return text.strip('\u3000 \t\n')
+
+
+LANG_NORMALIZERS = {
+    "zh-TW": normalize_cht,
+    "ja":    normalize_jp,
+}
 
 
 def load_segments(tmpdir: str) -> list[dict]:
@@ -105,8 +136,24 @@ def main() -> None:
         print(__doc__)
         sys.exit(1)
 
-    tmpdir = sys.argv[1]
-    input_file = sys.argv[2] if len(sys.argv) > 2 else ""
+    # Parse positional and optional args
+    positional = []
+    source_lang = "en"
+    target_lang = "zh-TW"
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == "--source-lang" and i + 1 < len(sys.argv):
+            source_lang = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--target-lang" and i + 1 < len(sys.argv):
+            target_lang = sys.argv[i + 1]
+            i += 2
+        else:
+            positional.append(sys.argv[i])
+            i += 1
+
+    tmpdir = positional[0]
+    input_file = positional[1] if len(positional) > 1 else ""
 
     segments = load_segments(tmpdir)
 
@@ -126,20 +173,27 @@ def main() -> None:
     else:
         stem = os.path.join(tmpdir, "output")
 
-    en_out = stem + ".en.srt"
-    cht_out = stem + ".cht.srt"
+    src_ext = LANG_SRT_EXT.get(source_lang, source_lang)
+    tgt_ext = LANG_SRT_EXT.get(target_lang, target_lang)
 
-    en_content, en_count = build_srt(segments, "src")
-    cht_content, cht_count = build_srt(segments, "tgt", normalize=normalize_cht)
+    src_out = stem + f".{src_ext}.srt"
+    tgt_out = stem + f".{tgt_ext}.srt"
 
-    with open(en_out, "w", encoding="utf-8") as f:
-        f.write(en_content)
+    tgt_normalizer = LANG_NORMALIZERS.get(target_lang)
 
-    with open(cht_out, "w", encoding="utf-8") as f:
-        f.write(cht_content)
+    src_content, src_count = build_srt(segments, "src")
+    tgt_content, tgt_count = build_srt(segments, "tgt", normalize=tgt_normalizer)
 
-    print(f"EN  SRT → {en_out}  （{en_count} 條）")
-    print(f"CHT SRT → {cht_out}  （{cht_count} 條）")
+    with open(src_out, "w", encoding="utf-8") as f:
+        f.write(src_content)
+
+    with open(tgt_out, "w", encoding="utf-8") as f:
+        f.write(tgt_content)
+
+    src_label = src_ext.upper()
+    tgt_label = tgt_ext.upper()
+    print(f"{src_label}  SRT → {src_out}  （{src_count} 條）")
+    print(f"{tgt_label} SRT → {tgt_out}  （{tgt_count} 條）")
 
 
 if __name__ == "__main__":

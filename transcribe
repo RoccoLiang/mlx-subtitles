@@ -189,12 +189,13 @@ choose_model() {
     local current="${DEFAULT_MODEL:-large-v3-turbo}"
 
     # 數字 → 模型名稱
-    local -a model_names=("large-v3" "large-v3-turbo" "medium" "small")
+    local -a model_names=("large-v3" "large-v3-turbo" "medium" "small" "kotoba-v2.0")
     local -a model_desc=(
         "~3 GB · 最高精度"
         "~1.6 GB · 速度與精度平衡"
         "~1.5 GB · 較快"
         "~500 MB · 測試用"
+        "~1.5 GB · 日語專用（快速）"
     )
 
     # 找出建議選項的編號
@@ -221,7 +222,7 @@ choose_model() {
     read -rp "  選擇 [${default_num}]: " choice
     choice="${choice:-$default_num}"
 
-    if [[ "$choice" =~ ^[1-4]$ ]]; then
+    if [[ "$choice" =~ ^[1-5]$ ]]; then
         SELECTED_MODEL="${model_names[$(( choice - 1 ))]}"
     else
         SELECTED_MODEL="$current"

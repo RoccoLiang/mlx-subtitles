@@ -93,6 +93,27 @@ choose_video() {
     fi
 }
 
+# ── 目標語言選單 ───────────────────────────────────────────────────────────────
+
+choose_target_language() {
+    echo ""
+    echo -e "${BOLD}── 翻譯目標語言 ────────────────────────────${RESET}"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} 中文 (zh-TW)  ${CYAN}← 預設${RESET}"
+    echo -e "  ${BOLD}2)${RESET} 日文 (ja)"
+    echo ""
+
+    local choice
+    read -rp "  選擇 [1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) SELECTED_TARGET_LANG="zh-TW" ;;
+        2) SELECTED_TARGET_LANG="ja" ;;
+        *) SELECTED_TARGET_LANG="zh-TW" ;;
+    esac
+}
+
 # ── 確認並執行 ─────────────────────────────────────────────────────────────────
 
 confirm_and_run() {
@@ -110,7 +131,7 @@ confirm_and_run() {
     tgt_lang=$("$PYTHON"  -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import TRANSLATE_TARGET_LANG; print(TRANSLATE_TARGET_LANG)" 2>/dev/null || echo "zh-TW")
 
     echo -e "  🤖  模型：${CYAN}${BOLD}${seg_model}${RESET}  ${DIM}(local/config.py)${RESET}"
-    echo -e "  🌐  翻譯：${tgt_lang}"
+    echo -e "  🌐  翻譯：${tgt_lang} → ${SELECTED_TARGET_LANG}"
     echo ""
 
     local confirm
@@ -120,7 +141,7 @@ confirm_and_run() {
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
         echo ""
         for f in "${SELECTED_FILES[@]}"; do
-            "$PYTHON" "$SCRIPT_DIR/local/run.py" "$f"
+            "$PYTHON" "$SCRIPT_DIR/local/run.py" "$f" --target-lang "$SELECTED_TARGET_LANG"
         done
         echo -e "  ${GREEN}${BOLD}✓  全部完成${RESET}"
         echo ""
@@ -150,12 +171,15 @@ check_lmstudio
 
 # ── 進階模式：直接傳參略過互動 ──────────────────────────────────────────────────
 if [ $# -ge 1 ]; then
+    local_args=("$1")
+    [ $# -ge 2 ] && local_args+=(--target-lang "$2")
     echo ""
-    exec "$PYTHON" "$SCRIPT_DIR/local/run.py" "$1"
+    exec "$PYTHON" "$SCRIPT_DIR/local/run.py" "${local_args[@]}"
 fi
 
 # ── 互動模式 ────────────────────────────────────────────────────────────────────
 echo ""
 
 choose_video
+choose_target_language
 confirm_and_run

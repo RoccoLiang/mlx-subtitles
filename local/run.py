@@ -45,7 +45,7 @@ _COMMON_CAPS: Final[frozenset[str]] = frozenset({
 })
 
 sys.path.insert(0, str(LOCAL_DIR))
-from config import SEGMENT_MODEL, TRANSLATE_MODEL
+from config import SEGMENT_MODEL, TRANSLATE_MODEL, TRANSLATE_SOURCE_LANG, TRANSLATE_TARGET_LANG
 
 
 def run(cmd: list) -> None:
@@ -242,8 +242,8 @@ def print_section(title: str) -> None:
     print(f"\n── {title} {'─' * (44 - len(title))}")
 
 
-def parse_arguments() -> Path:
-    """Parse command line arguments."""
+def parse_arguments() -> tuple[Path, str, str]:
+    """Parse command line arguments and return (input_path, source_lang, target_lang)."""
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -251,11 +251,26 @@ def parse_arguments() -> Path:
         print(__doc__)
         sys.exit(0)
 
-    return validate_input_path(Path(sys.argv[1]))
+    positional = []
+    source_lang = TRANSLATE_SOURCE_LANG
+    target_lang = TRANSLATE_TARGET_LANG
+    i = 1
+    while i < len(sys.argv):
+        if sys.argv[i] == "--source-lang" and i + 1 < len(sys.argv):
+            source_lang = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--target-lang" and i + 1 < len(sys.argv):
+            target_lang = sys.argv[i + 1]
+            i += 2
+        else:
+            positional.append(sys.argv[i])
+            i += 1
+
+    return validate_input_path(Path(positional[0])), source_lang, target_lang
 
 
 def main() -> None:
-    input_path = parse_arguments()
+    input_path, source_lang, target_lang = parse_arguments()
 
     # Clean up any stale temp files
     cleanup_tmp()
@@ -277,11 +292,13 @@ def main() -> None:
 
     # Step B: translation
     print_section(f"Step B：翻譯（{TRANSLATE_MODEL}）")
-    run([PYTHON, str(LOCAL_DIR / "translate.py"), str(TMP_DIR), str(TMP_DIR)])
+    run([PYTHON, str(LOCAL_DIR / "translate.py"), str(TMP_DIR), str(TMP_DIR),
+         "--source-lang", source_lang, "--target-lang", target_lang])
 
     # Assemble SRT
     print_section("組裝 SRT")
-    run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(srt_base_path)])
+    run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(srt_base_path),
+         "--source-lang", source_lang, "--target-lang", target_lang])
 
     # Detect proper nouns before cleanup
     candidates = detect_proper_nouns(TMP_DIR)

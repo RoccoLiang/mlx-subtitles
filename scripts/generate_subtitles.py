@@ -25,6 +25,7 @@ MODEL_REPOS = {
     'large-v3-turbo': 'mlx-community/whisper-large-v3-turbo',
     'medium':         'mlx-community/whisper-medium-mlx',
     'small':          'mlx-community/whisper-small-mlx',
+    'kotoba-v2.0':    'kaiinui/kotoba-whisper-v2.0-mlx',
 }
 
 
