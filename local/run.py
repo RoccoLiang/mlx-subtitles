@@ -189,32 +189,46 @@ def detect_proper_nouns(tmp_dir: Path) -> list[str]:
 
 
 def glossary_review(candidates: list[str]) -> None:
-    """Show detected proper nouns and offer to open glossary.txt for editing."""
+    """Show detected proper nouns and save to file for later review."""
     print_section("專有名詞校對")
 
     if not candidates:
         print("  未偵測到新的專有名詞\n")
         return
 
+    # Write candidates to a separate file for later review
+    candidates_file = LOCAL_DIR / "glossary_candidates.txt"
+    with open(candidates_file, "w", encoding="utf-8") as f:
+        f.write("# 候選專有名詞（請手動審核後移至 glossary.txt）\n")
+        f.write("# 格式：\n")
+        f.write("#   詞彙         → 加入翻譯保留清單\n")
+        f.write("#   錯誤->正確    → 修正拼寫\n")
+        f.write("#   # 詞彙        → 忽略（維持註解狀態）\n")
+        f.write("#\n")
+        for term in candidates:
+            f.write(f"# {term}\n")
+
+    print(f"  已儲存候選清單至：{candidates_file.name}")
+    print(f"  共 {len(candidates)} 個候選詞彙\n")
+
     print("  以下詞彙可能是專有名詞（未在 glossary.txt 中）：\n")
-    for term in candidates[:30]:
+    for term in candidates:
         print(f"    {term}")
-    if len(candidates) > 30:
-        print(f"    … 共 {len(candidates)} 個")
 
     glossary_path = LOCAL_DIR / "glossary.txt"
-    print(f"\n  如需修正拼寫，請在 {glossary_path} 中加入：")
+    print(f"\n  如需確認，請在 {glossary_path} 中加入：")
     print("    正確詞：直接加一行（加入翻譯保留清單）")
     print("    拼寫修正：用「錯誤->正確」格式（下次自動修正）")
+    print(f"\n  或直接編輯 {candidates_file.name} 後，複製到 glossary.txt")
     print()
 
     try:
-        ans = input("  要現在開啟 glossary.txt 編輯嗎？[y/N]: ").strip().lower()
+        ans = input("  要現在開啟 glossary_candidates.txt 編輯嗎？[y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         ans = ""
 
     if ans == "y":
-        subprocess.run(["open", str(glossary_path)])
+        subprocess.run(["open", str(candidates_file)])
     print()
 
 
