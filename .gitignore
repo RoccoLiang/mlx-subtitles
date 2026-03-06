@@ -7,6 +7,9 @@ output/*
 !input/.gitkeep
 !output/.gitkeep
 
+# JSON directory (local settings)
+JSON/
+
 # macOS
 .DS_Store
 
