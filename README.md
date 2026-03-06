@@ -97,6 +97,36 @@ Subtitle files are output in the same directory as the video.
 
 ---
 
+## OpenCC Enhancement (Optional)
+
+OpenCC converts Simplified Chinese to Traditional Chinese (Taiwan), enhancing translation quality and filling in potentially missed terminology.
+
+### Usage
+
+**Interactive Mode:**
+```bash
+./subtitle_processor
+# Select "2) Use OpenCC" when prompted
+```
+
+**Command Line Mode:**
+```bash
+./subtitle_processor input/your-video.mp4 --opencc
+```
+
+**Configuration:**
+Set default in `local/config.py`:
+```python
+USE_OPENCC = True  # Enable by default
+```
+
+### Notes
+- Requires: `pip install OpenCC`
+- Uses `s2tw` conversion (Simplified → Traditional Taiwan)
+- Applied after translation, before SRT assembly
+
+---
+
 ## Glossary for Proper Nouns
 
 Add proper nouns (names, brands, show titles, etc.) to `local/glossary.txt`:
@@ -124,7 +154,7 @@ Muzikxpress
 - Skip interaction and run directly (transcription): `./transcribe input/video.mp4 [model] [language]`
 - Skip interaction and run directly (subtitles): `./subtitle_processor input/video.mp4`
 - Local Pipeline context limit: Default batch is 100 words/iteration, fits 4096 token context window
-- Enable OpenCC enhancement: `./subtitle_processor input/video.mp4 --opencc` or set `USE_OPENCC = True` in `local/config.py`
+- See **OpenCC Enhancement** section for translation enhancement options
 
 ---
 
@@ -227,6 +257,36 @@ curl -s http://localhost:1234/v1/models
 
 ---
 
+## OpenCC 增強翻譯（可選）
+
+OpenCC 將簡體中文轉換為繁體中文（台灣），可提升翻譯品質，補正可能遺漏的用語。
+
+### 使用方式
+
+**互動模式：**
+```bash
+./subtitle_processor
+# 出現選單時選擇「2) 使用 OpenCC」
+```
+
+**指令模式：**
+```bash
+./subtitle_processor input/your-video.mp4 --opencc
+```
+
+**設定預設：**
+在 `local/config.py` 中設定：
+```python
+USE_OPENCC = True  # 預設啟用
+```
+
+### 備註
+- 需要安裝：`pip install OpenCC`
+- 使用 `s2tw` 轉換（簡體→繁體台灣）
+- 在翻譯後、SRT 組裝前應用
+
+---
+
 ## 專有名詞 Glossary
 
 將專有名詞（人名、品牌、節目名稱等）加入 `local/glossary.txt`：
@@ -254,4 +314,4 @@ Muzikxpress
 - 跳過互動直接執行（轉錄）：`./transcribe input/video.mp4 [model] [language]`
 - 跳過互動直接執行（字幕）：`./subtitle_processor input/video.mp4`
 - 本地 Pipeline 上下文限制：預設批次為 100 字詞/次，符合 4096 token 上下文視窗
-- 啟用 OpenCC 增強翻譯：`./subtitle_processor input/video.mp4 --opencc` 或在 `local/config.py` 中設定 `USE_OPENCC = True`
+- 參考「OpenCC 增強翻譯」章節了解翻譯強化選項
