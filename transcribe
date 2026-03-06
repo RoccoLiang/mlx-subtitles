@@ -74,6 +74,19 @@ setup_env() {
         exit 1
     fi
 
+    if ! command -v ffmpeg &>/dev/null; then
+        if command -v brew &>/dev/null; then
+            echo "  安裝 ffmpeg（音訊前處理必要）..."
+            brew install ffmpeg
+        else
+            echo ""
+            echo "  錯誤：未找到 ffmpeg，且未安裝 Homebrew"
+            echo "  請手動安裝：https://ffmpeg.org/download.html"
+            echo ""
+            exit 1
+        fi
+    fi
+
     if [ -d "$VENV_DIR" ] && [ ! -x "$PYTHON" ]; then
         echo "  移除不相容的虛擬環境..."
         rm -rf "$VENV_DIR"
