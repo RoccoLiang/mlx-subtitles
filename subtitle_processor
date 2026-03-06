@@ -4,7 +4,8 @@
 # 後續執行：互動式選單選擇影片，透過本地 LM Studio 完成分句與翻譯
 #
 # 進階用法（直接傳參，略過互動）：
-#   ./subtitle_processor video.mp4    # 處理單一影片
+#   ./subtitle_processor video.mp4              # 處理單一影片
+#   ./subtitle_processor video.mp4 --opencc     # 使用 OpenCC 增強翻譯
 
 set -e
 
@@ -114,6 +115,29 @@ choose_target_language() {
     esac
 }
 
+# ── OpenCC 選單 ─────────────────────────────────────────────────────────────────
+
+choose_opencc() {
+    echo ""
+    echo -e "${BOLD}── OpenCC 增強翻譯 ────────────────────────${RESET}"
+    echo ""
+    echo -e "  ${BOLD}1)${RESET} 不使用  ${CYAN}← 預設${RESET}"
+    echo -e "  ${BOLD}2)${RESET} 使用 OpenCC (簡體→繁體)"
+    echo ""
+    echo -e "  ${DIM}OpenCC 可增強翻譯，補正可能遺漏的用語${RESET}"
+    echo ""
+
+    local choice
+    read -rp "  選擇 [1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) SELECTED_OPENCC="" ;;
+        2) SELECTED_OPENCC="--opencc" ;;
+        *) SELECTED_OPENCC="" ;;
+    esac
+}
+
 # ── 確認並執行 ─────────────────────────────────────────────────────────────────
 
 confirm_and_run() {
@@ -132,6 +156,11 @@ confirm_and_run() {
 
     echo -e "  🤖  模型：${CYAN}${BOLD}${seg_model}${RESET}  ${DIM}(local/config.py)${RESET}"
     echo -e "  🌐  翻譯：${tgt_lang} → ${SELECTED_TARGET_LANG}"
+    if [ -n "$SELECTED_OPENCC" ]; then
+        echo -e "  🔄  OpenCC：${YELLOW}啟用${RESET}"
+    else
+        echo -e "  🔄  OpenCC：${DIM}停用${RESET}"
+    fi
     echo ""
 
     local confirm
@@ -141,7 +170,7 @@ confirm_and_run() {
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
         echo ""
         for f in "${SELECTED_FILES[@]}"; do
-            "$PYTHON" "$SCRIPT_DIR/local/run.py" "$f" --target-lang "$SELECTED_TARGET_LANG"
+            "$PYTHON" "$SCRIPT_DIR/local/run.py" "$f" --target-lang "$SELECTED_TARGET_LANG" $SELECTED_OPENCC
         done
         echo -e "  ${GREEN}${BOLD}✓  全部完成${RESET}"
         echo ""
@@ -172,7 +201,11 @@ check_lmstudio
 # ── 進階模式：直接傳參略過互動 ──────────────────────────────────────────────────
 if [ $# -ge 1 ]; then
     local_args=("$1")
-    [ $# -ge 2 ] && local_args+=(--target-lang "$2")
+    shift
+    while [ $# -gt 0 ]; do
+        local_args+=("$1")
+        shift
+    done
     echo ""
     exec "$PYTHON" "$SCRIPT_DIR/local/run.py" "${local_args[@]}"
 fi
@@ -182,4 +215,5 @@ echo ""
 
 choose_video
 choose_target_language
+choose_opencc
 confirm_and_run

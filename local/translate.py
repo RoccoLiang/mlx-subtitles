@@ -23,17 +23,25 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
-    LMSTUDIO_BASE_URL, TRANSLATE_MODEL, TRANSLATE_USE_NATIVE,
-    TRANSLATE_SOURCE_LANG, TRANSLATE_TARGET_LANG,
-    TRANSLATE_CHAT_BATCH_SIZE, TRANSLATE_MAX_TOKENS, REQUEST_TIMEOUT,
-    MAX_RETRIES, RETRY_BACKOFF_BASE,
+    LMSTUDIO_BASE_URL,
+    TRANSLATE_MODEL,
+    TRANSLATE_USE_NATIVE,
+    TRANSLATE_SOURCE_LANG,
+    TRANSLATE_TARGET_LANG,
+    TRANSLATE_CHAT_BATCH_SIZE,
+    TRANSLATE_MAX_TOKENS,
+    REQUEST_TIMEOUT,
+    MAX_RETRIES,
+    RETRY_BACKOFF_BASE,
+    MIN_SUCCESS_RATE,
+    validate_lmstudio_url,
 )
 from glossary import as_keep_list
 
 LANG_LABELS = {
-    "en":    "English",
+    "en": "English",
     "zh-TW": "Traditional Chinese (Taiwan)",
-    "ja":    "Japanese",
+    "ja": "Japanese",
 }
 
 LANG_STYLE_HINTS = {
@@ -49,6 +57,7 @@ LANG_STYLE_HINTS = {
 
 
 def _call(payload: dict) -> str:
+    validate_lmstudio_url()  # Lazy validation on first API call
     url = f"{LMSTUDIO_BASE_URL}/chat/completions"
     try:
         resp = requests.post(url, json=payload, timeout=REQUEST_TIMEOUT)
@@ -70,23 +79,31 @@ def _call(payload: dict) -> str:
 
 def translate_native(text: str) -> str:
     """TranslateGemma structured content format (one segment per call)."""
-    return _call({
-        "model": TRANSLATE_MODEL,
-        "messages": [{
-            "role": "user",
-            "content": [{
-                "type": "text",
-                "source_lang_code": TRANSLATE_SOURCE_LANG,
-                "target_lang_code": TRANSLATE_TARGET_LANG,
-                "text": text,
-            }],
-        }],
-        "temperature": 0.2,
-        "max_tokens": TRANSLATE_MAX_TOKENS,
-    })
+    return _call(
+        {
+            "model": TRANSLATE_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "source_lang_code": TRANSLATE_SOURCE_LANG,
+                            "target_lang_code": TRANSLATE_TARGET_LANG,
+                            "text": text,
+                        }
+                    ],
+                }
+            ],
+            "temperature": 0.2,
+            "max_tokens": TRANSLATE_MAX_TOKENS,
+        }
+    )
 
 
-def translate_chat_batch(segments: list[dict], source_lang: str, target_lang: str) -> list[str]:
+def translate_chat_batch(
+    segments: list[dict], source_lang: str, target_lang: str
+) -> list[str]:
     """Standard chat format — translate a batch as a numbered list."""
     lines = [f"{i + 1}. {seg['src']}" for i, seg in enumerate(segments)]
     keep = as_keep_list()
@@ -99,15 +116,16 @@ def translate_chat_batch(segments: list[dict], source_lang: str, target_lang: st
         "Keep English proper nouns, brand names, and technical terms unchanged.\n"
         f"{keep_line}"
         f"{style_hint}"
-        "Return ONLY the numbered translations.\n\n"
-        + "\n".join(lines)
+        "Return ONLY the numbered translations.\n\n" + "\n".join(lines)
     )
-    content = _call({
-        "model": TRANSLATE_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-        "max_tokens": TRANSLATE_MAX_TOKENS,
-    })
+    content = _call(
+        {
+            "model": TRANSLATE_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": TRANSLATE_MAX_TOKENS,
+        }
+    )
     result: dict[int, str] = {}
     for line in content.splitlines():
         m = re.match(r"^(\d+)[.)]\s*(.+)$", line.strip())
@@ -124,8 +142,10 @@ def translate_one(text: str, max_retries: int = MAX_RETRIES) -> str:
         except (ValueError, TimeoutError, ConnectionError) as e:
             last_err = e
             if attempt < max_retries - 1:
-                wait_time = RETRY_BACKOFF_BASE ** attempt
-                print(f"(retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                wait_time = RETRY_BACKOFF_BASE**attempt
+                print(
+                    f"(retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True
+                )
                 time.sleep(wait_time)
     raise RuntimeError(f"Translation failed: {last_err}")
 
@@ -173,7 +193,11 @@ def main() -> None:
         sys.exit(1)
 
     total = len(segments)
-    mode = "TranslateGemma native (1 call/segment)" if TRANSLATE_USE_NATIVE else f"chat batch ({TRANSLATE_CHAT_BATCH_SIZE}/call)"
+    mode = (
+        "TranslateGemma native (1 call/segment)"
+        if TRANSLATE_USE_NATIVE
+        else f"chat batch ({TRANSLATE_CHAT_BATCH_SIZE}/call)"
+    )
     print(f"  Segments: {total}  |  Model: {TRANSLATE_MODEL}  |  Mode: {mode}")
     print(f"  {source_lang} → {target_lang}\n")
 
@@ -184,10 +208,17 @@ def main() -> None:
             print(f"  [{i + 1}/{total}] {seg['src'][:55]}... ", end="", flush=True)
             tgt = translate_one(seg["src"])
             print(tgt[:40])
-            results.append({"src": seg["src"], "tgt": tgt, "start": seg["start"], "end": seg["end"]})
+            results.append(
+                {
+                    "src": seg["src"],
+                    "tgt": tgt,
+                    "start": seg["start"],
+                    "end": seg["end"],
+                }
+            )
     else:
         for offset in range(0, total, TRANSLATE_CHAT_BATCH_SIZE):
-            batch = segments[offset: offset + TRANSLATE_CHAT_BATCH_SIZE]
+            batch = segments[offset : offset + TRANSLATE_CHAT_BATCH_SIZE]
             end_idx = offset + len(batch) - 1
             print(f"  Batch (segments {offset}–{end_idx})...", end=" ", flush=True)
 
@@ -198,26 +229,37 @@ def main() -> None:
                 try:
                     translations = translate_chat_batch(batch, source_lang, target_lang)
                     filled = sum(1 for t in translations if t)
-                    if filled < len(batch) * 0.8:
+                    if filled < len(batch) * MIN_SUCCESS_RATE:
                         raise ValueError(f"Only {filled}/{len(batch)} parsed")
                     success = True
                     break
                 except (ValueError, TimeoutError, ConnectionError) as e:
                     last_err = e
                     if attempt < MAX_RETRIES - 1:
-                        wait_time = RETRY_BACKOFF_BASE ** attempt
-                        print(f"(retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                        wait_time = RETRY_BACKOFF_BASE**attempt
+                        print(
+                            f"(retry {attempt + 1}, wait {wait_time}s)...",
+                            end=" ",
+                            flush=True,
+                        )
                         time.sleep(wait_time)
             if not success:
                 raise RuntimeError(f"Batch failed: {last_err}")
 
             print("done")
             for seg, tgt in zip(batch, translations):
-                results.append({"src": seg["src"], "tgt": tgt, "start": seg["start"], "end": seg["end"]})
+                results.append(
+                    {
+                        "src": seg["src"],
+                        "tgt": tgt,
+                        "start": seg["start"],
+                        "end": seg["end"],
+                    }
+                )
 
     out_path = output_dir / "_translated_result_0.json"
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
+        json.dump(results, f, ensure_ascii=False, separators=(",", ":"))
 
     print(f"\n  Step B done: {total} segments → {out_path}")
 

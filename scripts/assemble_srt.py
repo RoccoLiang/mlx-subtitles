@@ -3,11 +3,12 @@
 Assemble bilingual SRT subtitles from translated batch results.
 
 Usage:
-    python scripts/assemble_srt.py <tmpdir> [input_file] [--source-lang XX] [--target-lang XX]
+    python scripts/assemble_srt.py <tmpdir> [input_file] [--source-lang XX] [--target-lang XX] [--opencc]
 
 Arguments:
     tmpdir      Directory containing _translated_result_0.json, _translated_result_1.json, ...
     input_file  Optional: original video/words.json path (determines output .srt filename)
+    --opencc    Optional: apply OpenCC conversion to enhance Chinese translation (s2tw)
 
 Outputs:
     <stem>.<src_ext>.srt  — Source language subtitles
@@ -18,20 +19,32 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+from typing import Final
+
+try:
+    import OpenCC
+
+    OPENCC_AVAILABLE = True
+except ImportError:
+    OPENCC_AVAILABLE = False
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "local"))
+from config import SUPPORTED_VIDEO_EXTS
 
 HOLD_TIME = 0.4  # Seconds subtitle lingers after last word ends
 
 LANG_SRT_EXT = {
-    "en":    "en",
+    "en": "en",
     "zh-TW": "cht",
-    "ja":    "jp",
+    "ja": "jp",
 }
 
 # ── CJK SRT normalisation ─────────────────────────────────────────────────────
-_FWSP        = '\u3000'                      # 全形空格（與中文字等寬）
-_CHT_REMOVE  = re.compile(r'[。]')          # full stop — always remove
-_CHT_TO_SPC  = re.compile(r'[，、；]')      # commas / semicolons → 全形空格
-_MULTI_FWSP  = re.compile(r'\u3000{2,}')    # collapse consecutive 全形空格
+_FWSP = "\u3000"  # 全形空格（與中文字等寬）
+_CHT_REMOVE = re.compile(r"[。]")  # full stop — always remove
+_CHT_TO_SPC = re.compile(r"[，、；]")  # commas / semicolons → 全形空格
+_MULTI_FWSP = re.compile(r"\u3000{2,}")  # collapse consecutive 全形空格
 
 
 def normalize_cht(text: str) -> str:
@@ -45,14 +58,14 @@ def normalize_cht(text: str) -> str:
 
     Per-line target: 12–16 chars, hard limit 20 chars (enforced by translation prompt).
     """
-    text = _CHT_REMOVE.sub('', text)
+    text = _CHT_REMOVE.sub("", text)
     text = _CHT_TO_SPC.sub(_FWSP, text)
     text = _MULTI_FWSP.sub(_FWSP, text)
-    return text.strip('\u3000 \t\n')
+    return text.strip("\u3000 \t\n")
 
 
-_JP_REMOVE  = re.compile(r'[。]')
-_JP_TO_SPC  = re.compile(r'[、；]')
+_JP_REMOVE = re.compile(r"[。]")
+_JP_TO_SPC = re.compile(r"[、；]")
 
 
 def normalize_jp(text: str) -> str:
@@ -64,16 +77,23 @@ def normalize_jp(text: str) -> str:
     - Preserves semantic punctuation: ？！…《》「」『』〈〉—
     - Strips leading/trailing whitespace (half- and full-width)
     """
-    text = _JP_REMOVE.sub('', text)
+    text = _JP_REMOVE.sub("", text)
     text = _JP_TO_SPC.sub(_FWSP, text)
     text = _MULTI_FWSP.sub(_FWSP, text)
-    return text.strip('\u3000 \t\n')
+    return text.strip("\u3000 \t\n")
 
 
 LANG_NORMALIZERS = {
     "zh-TW": normalize_cht,
-    "ja":    normalize_jp,
+    "ja": normalize_jp,
 }
+
+
+def opencc_convert(text: str, converter) -> str:
+    """Apply OpenCC conversion to enhance/normalize Chinese text."""
+    if not text:
+        return text
+    return converter.convert(text)
 
 
 def load_segments(tmpdir: str) -> list[dict]:
@@ -140,6 +160,7 @@ def main() -> None:
     positional = []
     source_lang = "en"
     target_lang = "zh-TW"
+    use_opencc = False
     i = 1
     while i < len(sys.argv):
         if sys.argv[i] == "--source-lang" and i + 1 < len(sys.argv):
@@ -148,6 +169,9 @@ def main() -> None:
         elif sys.argv[i] == "--target-lang" and i + 1 < len(sys.argv):
             target_lang = sys.argv[i + 1]
             i += 2
+        elif sys.argv[i] == "--opencc":
+            use_opencc = True
+            i += 1
         else:
             positional.append(sys.argv[i])
             i += 1
@@ -161,10 +185,23 @@ def main() -> None:
         print("ERROR: No translated results found.", file=sys.stderr)
         sys.exit(1)
 
+    # Initialize OpenCC converter if requested
+    opencc_converter = None
+    if use_opencc:
+        if not OPENCC_AVAILABLE:
+            print(
+                "WARNING: OpenCC not installed. Install with: pip install OpenCC",
+                file=sys.stderr,
+            )
+        else:
+            opencc_converter = OpenCC.OpenCC("s2tw")
+            print("Using OpenCC (Simplified → Traditional Taiwan) for enhancement")
+
     # Determine output stem
     if input_file:
         stem = input_file
-        for ext in (".mp4", ".mkv", ".mov", ".avi", ".m4v", ".webm", ".flv", ".wmv", ".words.json"):
+        extensions = [f".{ext}" for ext in SUPPORTED_VIDEO_EXTS] + [".words.json"]
+        for ext in extensions:
             if stem.endswith(ext):
                 stem = stem[: -len(ext)]
                 break
@@ -179,10 +216,16 @@ def main() -> None:
     src_out = stem + f".{src_ext}.srt"
     tgt_out = stem + f".{tgt_ext}.srt"
 
+    def enhanced_normalize(text: str) -> str:
+        text = (tgt_normalizer or (lambda x: x))(text)
+        if opencc_converter and text:
+            text = opencc_convert(text, opencc_converter)
+        return text
+
     tgt_normalizer = LANG_NORMALIZERS.get(target_lang)
 
     src_content, src_count = build_srt(segments, "src")
-    tgt_content, tgt_count = build_srt(segments, "tgt", normalize=tgt_normalizer)
+    tgt_content, tgt_count = build_srt(segments, "tgt", normalize=enhanced_normalize)
 
     with open(src_out, "w", encoding="utf-8") as f:
         f.write(src_content)

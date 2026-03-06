@@ -28,8 +28,14 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import (
-    LMSTUDIO_BASE_URL, SEGMENT_MODEL, SEGMENT_BATCH_SIZE,
-    SEGMENT_MAX_TOKENS, REQUEST_TIMEOUT, MAX_RETRIES, RETRY_BACKOFF_BASE,
+    LMSTUDIO_BASE_URL,
+    SEGMENT_MODEL,
+    SEGMENT_BATCH_SIZE,
+    SEGMENT_MAX_TOKENS,
+    REQUEST_TIMEOUT,
+    MAX_RETRIES,
+    RETRY_BACKOFF_BASE,
+    validate_lmstudio_url,
 )
 
 SYSTEM_PROMPT = (
@@ -39,11 +45,13 @@ SYSTEM_PROMPT = (
 )
 
 # Validation schema for API responses
-REQUIRED_SEGMENT_FIELDS = {'src', 'word_start', 'word_end'}
+REQUIRED_SEGMENT_FIELDS = {"src", "word_start", "word_end"}
 
 
 def build_user_prompt(words: list[dict]) -> str:
-    lines = [f"[{i}] \"{w['word']}\" ({w['start']}-{w['end']})" for i, w in enumerate(words)]
+    lines = [
+        f'[{i}] "{w["word"]}" ({w["start"]}-{w["end"]})' for i, w in enumerate(words)
+    ]
     return (
         "Segment these words into natural subtitle segments.\n\n"
         "Rules:\n"
@@ -51,14 +59,13 @@ def build_user_prompt(words: list[dict]) -> str:
         "- English source: max 12 words per segment; split at semantic boundaries\n"
         "- Do NOT split after a preposition, conjunction, or article\n"
         "- word_start and word_end are indices into this word list (0-based, inclusive)\n\n"
-        "Words:\n"
-        + "\n".join(lines)
-        + "\n\nReturn format:\n"
+        "Words:\n" + "\n".join(lines) + "\n\nReturn format:\n"
         '[{"src": "sentence text", "word_start": 0, "word_end": 5}, ...]'
     )
 
 
 def call_api(messages: list[dict]) -> str:
+    validate_lmstudio_url()  # Lazy validation on first API call
     url = f"{LMSTUDIO_BASE_URL}/chat/completions"
     payload = {
         "model": SEGMENT_MODEL,
@@ -108,7 +115,9 @@ def extract_json_array(text: str) -> list[dict]:
         raise ValueError(f"Invalid JSON: {e}")
 
 
-def segment_batch(words: list[dict], batch_num: int, max_retries: int = MAX_RETRIES) -> list[dict]:
+def segment_batch(
+    words: list[dict], batch_num: int, max_retries: int = MAX_RETRIES
+) -> list[dict]:
     prompt = build_user_prompt(words)
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -130,13 +139,15 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = MAX_RETR
                     if ws < 0 or we >= len(words) or ws > we:
                         skipped += 1
                         continue
-                    result.append({
-                        "src":        seg["src"].strip(),
-                        "start":      words[ws]["start"],
-                        "end":        words[we]["end"],
-                        "word_start": ws,
-                        "word_end":   we,
-                    })
+                    result.append(
+                        {
+                            "src": seg["src"].strip(),
+                            "start": words[ws]["start"],
+                            "end": words[we]["end"],
+                            "word_start": ws,
+                            "word_end": we,
+                        }
+                    )
                 except (KeyError, ValueError, TypeError):
                     skipped += 1
 
@@ -147,11 +158,15 @@ def segment_batch(words: list[dict], batch_num: int, max_retries: int = MAX_RETR
         except (ValueError, TimeoutError, ConnectionError) as e:
             last_err = e
             if attempt < max_retries - 1:
-                wait_time = RETRY_BACKOFF_BASE ** attempt
-                print(f" (retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True)
+                wait_time = RETRY_BACKOFF_BASE**attempt
+                print(
+                    f" (retry {attempt + 1}, wait {wait_time}s)...", end=" ", flush=True
+                )
                 time.sleep(wait_time)
 
-    raise RuntimeError(f"Batch {batch_num} failed after {max_retries} attempts: {last_err}")
+    raise RuntimeError(
+        f"Batch {batch_num} failed after {max_retries} attempts: {last_err}"
+    )
 
 
 def process_batch_wrapper(args: tuple) -> tuple[int, list[dict]]:
@@ -176,23 +191,30 @@ def main() -> None:
     with open(words_path, encoding="utf-8") as f:
         words = json.load(f)
 
+    if not words:
+        print("ERROR: words.json is empty", file=sys.stderr)
+        sys.exit(1)
+
     total = len(words)
     print(f"  Words: {total}  |  Model: {SEGMENT_MODEL}")
 
     # Prepare batches
     batches = []
     for offset in range(0, total, SEGMENT_BATCH_SIZE):
-        batch = words[offset: offset + SEGMENT_BATCH_SIZE]
+        batch = words[offset : offset + SEGMENT_BATCH_SIZE]
         batches.append((batch, len(batches)))
 
     # Process in parallel
     max_workers = min(4, len(batches))
     results = {}
+    errors = []
 
     print(f"  Processing {len(batches)} batches with {max_workers} workers...")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_batch_wrapper, args): args[1] for args in batches}
+        futures = {
+            executor.submit(process_batch_wrapper, args): args[1] for args in batches
+        }
 
         for future in as_completed(futures):
             batch_num = futures[future]
@@ -202,13 +224,18 @@ def main() -> None:
 
                 out_path = output_dir / f"_segments_result_{batch_num}.json"
                 with open(out_path, "w", encoding="utf-8") as f:
-                    json.dump(segments, f, ensure_ascii=False, indent=2)
+                    json.dump(segments, f, ensure_ascii=False, separators=(",", ":"))
 
-                end_idx = batch_num * SEGMENT_BATCH_SIZE + len(segments) - 1
-                print(f"  Batch {batch_num}: {len(segments)} segments → {out_path.name}")
+                print(
+                    f"  Batch {batch_num}: {len(segments)} segments → {out_path.name}"
+                )
             except Exception as e:
-                print(f"\n  ERROR: Batch {batch_num} failed: {e}", file=sys.stderr)
-                raise
+                errors.append((batch_num, e))
+                print(f"  ERROR: Batch {batch_num} failed: {e}", file=sys.stderr)
+
+    # Report all errors after processing completes
+    if errors:
+        raise RuntimeError(f"{len(errors)}/{len(batches)} batches failed")
 
     print(f"  Step A done: {len(results)} batch(es) written")
 

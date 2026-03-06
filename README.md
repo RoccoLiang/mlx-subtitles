@@ -16,6 +16,7 @@ Two translation workflows supported:
 **Common Requirements**
 - Apple Silicon Mac
 - [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- OpenCC (optional, for Chinese translation enhancement): `pip install OpenCC`
 
 **Claude Code Workflow**
 - [Claude Code](https://claude.ai/code)
@@ -123,6 +124,7 @@ Muzikxpress
 - Skip interaction and run directly (transcription): `./transcribe input/video.mp4 [model] [language]`
 - Skip interaction and run directly (subtitles): `./subtitle_processor input/video.mp4`
 - Local Pipeline context limit: Default batch is 100 words/iteration, fits 4096 token context window
+- Enable OpenCC enhancement: `./subtitle_processor input/video.mp4 --opencc` or set `USE_OPENCC = True` in `local/config.py`
 
 ---
 
@@ -144,6 +146,7 @@ Muzikxpress
 **共同需求**
 - Apple Silicon Mac
 - [uv](https://docs.astral.sh/uv/)：`curl -LsSf https://astral.sh/uv/install.sh | sh`
+- OpenCC（可選，用於中文翻譯增強）：`pip install OpenCC`
 
 **Claude Code 工作流程**
 - [Claude Code](https://claude.ai/code)
@@ -251,3 +254,4 @@ Muzikxpress
 - 跳過互動直接執行（轉錄）：`./transcribe input/video.mp4 [model] [language]`
 - 跳過互動直接執行（字幕）：`./subtitle_processor input/video.mp4`
 - 本地 Pipeline 上下文限制：預設批次為 100 字詞/次，符合 4096 token 上下文視窗
+- 啟用 OpenCC 增強翻譯：`./subtitle_processor input/video.mp4 --opencc` 或在 `local/config.py` 中設定 `USE_OPENCC = True`

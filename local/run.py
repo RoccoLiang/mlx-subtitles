@@ -3,49 +3,94 @@
 本地字幕 Pipeline（分句 + 翻譯 + 組裝 SRT）
 
 Usage:
-    .venv/bin/python local/run.py <影片或 words.json>
+    .venv/bin/python local/run.py <影片或 words.json> [--opencc]
+
+Options:
+    --opencc    使用 OpenCC 增強中文翻譯（簡體→繁體）
 
 Examples:
     .venv/bin/python local/run.py input/video.mp4
     .venv/bin/python local/run.py output/video.words.json
+    .venv/bin/python local/run.py input/video.mp4 --opencc
 """
 
 import glob
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Final
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VENV_PYTHON  = PROJECT_ROOT / ".venv" / "bin" / "python"
-PYTHON       = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
+VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+PYTHON = str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
-LOCAL_DIR    = PROJECT_ROOT / "local"
-SCRIPTS_DIR  = PROJECT_ROOT / "scripts"
-INPUT_DIR    = PROJECT_ROOT / "input"
-OUTPUT_DIR   = PROJECT_ROOT / "output"
-TMP_DIR      = Path(tempfile.gettempdir())
+LOCAL_DIR = PROJECT_ROOT / "local"
+SCRIPTS_DIR = PROJECT_ROOT / "scripts"
+INPUT_DIR = PROJECT_ROOT / "input"
+OUTPUT_DIR = PROJECT_ROOT / "output"
+TMP_DIR = Path(tempfile.gettempdir())
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-SUPPORTED_VIDEO_EXTS: Final[tuple[str, ...]] = ("mp4", "mov", "mkv", "avi", "m4v", "webm", "flv", "wmv")
-
 # Common capitalized words that don't need to be listed
-_COMMON_CAPS: Final[frozenset[str]] = frozenset({
-    "i", "i'm", "i've", "i'll", "i'd",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december",
-    "english", "chinese", "japanese", "french", "german", "dutch", "spanish",
-    "american", "european", "british", "yes", "no", "ok", "okay",
-})
+_COMMON_CAPS: Final[frozenset[str]] = frozenset(
+    {
+        "i",
+        "i'm",
+        "i've",
+        "i'll",
+        "i'd",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "english",
+        "chinese",
+        "japanese",
+        "french",
+        "german",
+        "dutch",
+        "spanish",
+        "american",
+        "european",
+        "british",
+        "yes",
+        "no",
+        "ok",
+        "okay",
+    }
+)
 
 sys.path.insert(0, str(LOCAL_DIR))
-from config import SEGMENT_MODEL, TRANSLATE_MODEL, TRANSLATE_SOURCE_LANG, TRANSLATE_TARGET_LANG
+from config import (
+    SEGMENT_MODEL,
+    TRANSLATE_MODEL,
+    TRANSLATE_SOURCE_LANG,
+    TRANSLATE_TARGET_LANG,
+    USE_OPENCC,
+    SUPPORTED_VIDEO_EXTS,
+)
 
 
 def run(cmd: list) -> None:
@@ -75,9 +120,16 @@ def resolve_words_json(input_file: Path) -> Path:
         return words_json
 
     print(f"  words.json 不存在，開始轉錄 {input_file.name} ...")
-    run([PYTHON, str(SCRIPTS_DIR / "generate_subtitles.py"),
-         "--file", str(input_file),
-         "--output", str(OUTPUT_DIR)])
+    run(
+        [
+            PYTHON,
+            str(SCRIPTS_DIR / "generate_subtitles.py"),
+            "--file",
+            str(input_file),
+            "--output",
+            str(OUTPUT_DIR),
+        ]
+    )
     return words_json
 
 
@@ -86,7 +138,7 @@ def resolve_video_path(input_path: Path) -> Path:
     if not input_path.name.endswith(".words.json"):
         return input_path
 
-    stem = input_path.name[:-len(".words.json")]
+    stem = input_path.name[: -len(".words.json")]
     for ext in SUPPORTED_VIDEO_EXTS:
         candidate = INPUT_DIR / f"{stem}.{ext}"
         if candidate.exists():
@@ -99,7 +151,9 @@ def backup_file(path: Path) -> Path:
     if not path.exists():
         return path
 
-    backup_path = path.with_suffix(path.suffix + f".bak.{int(path.stat().st_mtime)}")
+    ts = int(time.time() * 1000)
+    rnd = random.randint(0, 999)
+    backup_path = path.with_suffix(path.suffix + f".bak.{ts}{rnd:03d}")
     shutil.copy2(path, backup_path)
     return backup_path
 
@@ -107,6 +161,7 @@ def backup_file(path: Path) -> Path:
 def fix_words_json(words_json: Path) -> None:
     """Apply glossary corrections to words.json with backup."""
     from glossary import load_corrections
+
     corrections = load_corrections()
     if not corrections:
         return
@@ -129,8 +184,10 @@ def fix_words_json(words_json: Path) -> None:
             correct = lookup[stripped.lower()]
             leading = len(entry["word"]) - len(entry["word"].lstrip())
             trailing = len(entry["word"]) - len(entry["word"].rstrip())
-            entry["word"] = entry["word"][:leading] + correct + (
-                entry["word"][len(entry["word"]) - trailing:] if trailing else ""
+            entry["word"] = (
+                entry["word"][:leading]
+                + correct
+                + (entry["word"][len(entry["word"]) - trailing :] if trailing else "")
             )
             fixed += 1
 
@@ -145,14 +202,6 @@ def fix_words_json(words_json: Path) -> None:
 
 
 # 常見不需列出的大寫詞
-_COMMON_CAPS = {
-    "i", "i'm", "i've", "i'll", "i'd",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "may", "june", "july", "august",
-    "september", "october", "november", "december",
-    "english", "chinese", "japanese", "french", "german", "dutch", "spanish",
-    "american", "european", "british", "yes", "no", "ok", "okay",
-}
 
 
 def detect_proper_nouns(tmp_dir: Path) -> list[str]:
@@ -170,6 +219,7 @@ def detect_proper_nouns(tmp_dir: Path) -> list[str]:
         return []
 
     from glossary import load_terms, load_corrections
+
     known = {t.lower() for t in load_terms()}
     known |= {v.lower() for v in load_corrections().values()}
 
@@ -180,9 +230,11 @@ def detect_proper_nouns(tmp_dir: Path) -> list[str]:
             clean = re.sub(r"[^a-zA-Z'&-]", "", word)
             if len(clean) < 2 or word_idx == 0:
                 continue
-            if (clean[0].isupper() and
-                clean.lower() not in _COMMON_CAPS and
-                clean.lower() not in known):
+            if (
+                clean[0].isupper()
+                and clean.lower() not in _COMMON_CAPS
+                and clean.lower() not in known
+            ):
                 counts[clean] = counts.get(clean, 0) + 1
 
     return sorted(counts, key=lambda x: -counts[x])
@@ -223,7 +275,11 @@ def glossary_review(candidates: list[str]) -> None:
     print()
 
     try:
-        ans = input("  要現在開啟 glossary_candidates.txt 編輯嗎？[y/N]: ").strip().lower()
+        ans = (
+            input("  要現在開啟 glossary_candidates.txt 編輯嗎？[y/N]: ")
+            .strip()
+            .lower()
+        )
     except (EOFError, KeyboardInterrupt):
         ans = ""
 
@@ -242,8 +298,8 @@ def print_section(title: str) -> None:
     print(f"\n── {title} {'─' * (44 - len(title))}")
 
 
-def parse_arguments() -> tuple[Path, str, str]:
-    """Parse command line arguments and return (input_path, source_lang, target_lang)."""
+def parse_arguments() -> tuple[Path, str, str, bool]:
+    """Parse command line arguments and return (input_path, source_lang, target_lang, use_opencc)."""
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
@@ -254,6 +310,7 @@ def parse_arguments() -> tuple[Path, str, str]:
     positional = []
     source_lang = TRANSLATE_SOURCE_LANG
     target_lang = TRANSLATE_TARGET_LANG
+    use_opencc = USE_OPENCC
     i = 1
     while i < len(sys.argv):
         if sys.argv[i] == "--source-lang" and i + 1 < len(sys.argv):
@@ -262,15 +319,23 @@ def parse_arguments() -> tuple[Path, str, str]:
         elif sys.argv[i] == "--target-lang" and i + 1 < len(sys.argv):
             target_lang = sys.argv[i + 1]
             i += 2
+        elif sys.argv[i] == "--opencc":
+            use_opencc = True
+            i += 1
         else:
             positional.append(sys.argv[i])
             i += 1
 
-    return validate_input_path(Path(positional[0])), source_lang, target_lang
+    return (
+        validate_input_path(Path(positional[0])),
+        source_lang,
+        target_lang,
+        use_opencc,
+    )
 
 
 def main() -> None:
-    input_path, source_lang, target_lang = parse_arguments()
+    input_path, source_lang, target_lang, use_opencc = parse_arguments()
 
     # Clean up any stale temp files
     cleanup_tmp()
@@ -292,13 +357,34 @@ def main() -> None:
 
     # Step B: translation
     print_section(f"Step B：翻譯（{TRANSLATE_MODEL}）")
-    run([PYTHON, str(LOCAL_DIR / "translate.py"), str(TMP_DIR), str(TMP_DIR),
-         "--source-lang", source_lang, "--target-lang", target_lang])
+    run(
+        [
+            PYTHON,
+            str(LOCAL_DIR / "translate.py"),
+            str(TMP_DIR),
+            str(TMP_DIR),
+            "--source-lang",
+            source_lang,
+            "--target-lang",
+            target_lang,
+        ]
+    )
 
     # Assemble SRT
     print_section("組裝 SRT")
-    run([PYTHON, str(SCRIPTS_DIR / "assemble_srt.py"), str(TMP_DIR), str(srt_base_path),
-         "--source-lang", source_lang, "--target-lang", target_lang])
+    assemble_cmd = [
+        PYTHON,
+        str(SCRIPTS_DIR / "assemble_srt.py"),
+        str(TMP_DIR),
+        str(srt_base_path),
+        "--source-lang",
+        source_lang,
+        "--target-lang",
+        target_lang,
+    ]
+    if use_opencc:
+        assemble_cmd.append("--opencc")
+    run(assemble_cmd)
 
     # Detect proper nouns before cleanup
     candidates = detect_proper_nouns(TMP_DIR)
