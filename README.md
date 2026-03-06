@@ -11,9 +11,9 @@
 
 ---
 
-## 需要什麼
+## Requirements
 
-**共同需求**
+**Common Requirements**
 - Apple Silicon Mac
 - [uv](https://docs.astral.sh/uv/)：`curl -LsSf https://astral.sh/uv/install.sh | sh`
 
@@ -21,92 +21,92 @@
 - [Claude Code](https://claude.ai/code)
 
 **本地全端工作流程**
-- [LM Studio](https://lmstudio.ai/)，載入一個 Instruct 模型（分句與翻譯共用）
+- [LM Studio](https://lmstudio.ai/), load an Instruct model (shared for segmentation and translation)
 
 ---
 
-## Claude Code 工作流程
+## Claude Code Workflow
 
-**Step 1 — 轉錄**
+**Step 1 — Transcription**
 
-將影片放入 `input/`，執行：
+Place video in `input/`, execute:
 
 ```bash
 ./transcribe
 ```
 
-第一次執行會自動偵測硬體、安裝環境、推薦模型。
+First run automatically detects hardware, installs environment, and recommends model.
 
-**Step 2 — 翻譯（在 Claude Code 執行）**
+**Step 2 — Translation (Run in Claude Code)**
 
 ```
-/subtitles-srt input/你的影片.mp4
+/subtitles-srt input/your-video.mp4
 ```
 
 ---
 
-## 本地全端工作流程
+## Local End-to-End Workflow
 
-所有步驟都在本機執行，不需要 Claude API。
+All steps run locally, no Claude API required.
 
-**Step 1 — 轉錄**（同上）
+**Step 1 — Transcription** (same as above)
 
 ```bash
 ./transcribe
 ```
 
-**Step 2 — 啟動 LM Studio，載入模型**
+**Step 2 — Start LM Studio and Load Model**
 
-在 `local/config.py` 確認模型 ID 與 LM Studio 載入的一致（分句與翻譯可使用同一個模型）：
+Confirm model ID in `local/config.py` matches what LM Studio loaded (same model can be used for both segmentation and translation):
 
 ```python
-SEGMENT_MODEL   = "your-model-id"   # 分句用
-TRANSLATE_MODEL = "your-model-id"   # 翻譯用（可同上）
+SEGMENT_MODEL   = "your-model-id"   # For segmentation
+TRANSLATE_MODEL = "your-model-id"   # For translation (can be same)
 ```
 
-執行以下指令查看 LM Studio 目前載入的模型 ID：
+Run the following command to check current model ID loaded in LM Studio:
 
 ```bash
 curl -s http://localhost:1234/v1/models
 ```
 
-**Step 3 — 執行本地 Pipeline**
+**Step 3 — Run Local Pipeline**
 
 ```bash
 ./subtitle_processor
 ```
 
-或跳過互動直接指定影片：
+Or skip interaction and specify video directly:
 
 ```bash
-./subtitle_processor input/你的影片.mp4
+./subtitle_processor input/your-video.mp4
 ```
 
 ---
 
-## 輸出檔案
+## Output Files
 
-| 檔案 | 內容 |
-|------|------|
-| `output/影片名.words.json` | 單字級時間碼（轉錄中間產物） |
-| `影片名.en.srt` | 英文原文字幕 |
-| `影片名.cht.srt` | 正體中文翻譯字幕 |
+| File | Content |
+|------|---------|
+| `output/video-name.words.json` | Word-level timestamps (transcription intermediate product) |
+| `video-name.en.srt` | English original subtitles |
+| `video-name.cht.srt` | Traditional Chinese translated subtitles |
 
-字幕檔輸出位置與影片同目錄。
+Subtitle files are output in the same directory as the video.
 
 ---
 
-## 專有名詞術語表
+## Glossary for Proper Nouns
 
-在 `local/glossary.txt` 新增專有名詞（人名、品牌、節目名等）：
+Add proper nouns (names, brands, show titles, etc.) to `local/glossary.txt`:
 
-| 格式 | 說明 |
-|------|------|
-| `正確詞` | 加入翻譯保留清單，告知模型不可翻譯 |
-| `錯誤->正確` | 分句前自動修正 words.json 中的錯誤拼寫 |
+| Format | Description |
+|--------|-------------|
+| `correct-term` | Add to translation exclusion list, tell model not to translate |
+| `incorrect->correct` | Automatically correct misspellings in words.json before segmentation |
 
 ```
-# local/glossary.txt 範例
+# local/glossary.txt example
 Ferry Corsten
 Gouryella
 Guriela->Gouryella
@@ -116,10 +116,10 @@ Muzikxpress
 
 ---
 
-## 備注
+## Notes
 
-- 支援格式：`.mp4` `.mov` `.mkv` `.avi` `.m4v` `.webm` `.flv` `.wmv`
-- 換機器或重新偵測硬體：`./transcribe --reset`
-- 跳過互動直接跑（轉錄）：`./transcribe input/video.mp4 [模型] [語言]`
-- 跳過互動直接跑（字幕）：`./subtitle_processor input/video.mp4`
-- 本地 Pipeline context 限制：預設 batch 為 100 詞/次，適配 4096 token context window
+- Supported formats: `.mp4` `.mov` `.mkv` `.avi` `.m4v` `.webm` `.flv` `.wmv`
+- Hardware reset or re-detection: `./transcribe --reset`
+- Skip interaction and run directly (transcription): `./transcribe input/video.mp4 [model] [language]`
+- Skip interaction and run directly (subtitles): `./subtitle_processor input/video.mp4`
+- Local Pipeline context limit: Default batch is 100 words/iteration, fits 4096 token context window
