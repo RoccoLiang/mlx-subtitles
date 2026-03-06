@@ -115,7 +115,13 @@ def resolve_words_json(input_file: Path) -> Path:
     if input_file.name.endswith(".words.json"):
         return input_file
 
-    words_json = OUTPUT_DIR / f"{input_file.stem}.words.json"
+    import sys
+
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    from generate_subtitles import validate_filename
+
+    safe_stem = validate_filename(input_file.stem)
+    words_json = OUTPUT_DIR / f"{safe_stem}.words.json"
     if words_json.exists():
         return words_json
 
@@ -138,7 +144,12 @@ def resolve_video_path(input_path: Path) -> Path:
     if not input_path.name.endswith(".words.json"):
         return input_path
 
-    stem = input_path.name[: -len(".words.json")]
+    import sys
+
+    sys.path.insert(0, str(SCRIPTS_DIR))
+    from generate_subtitles import validate_filename
+
+    stem = validate_filename(input_path.name[: -len(".words.json")])
     for ext in SUPPORTED_VIDEO_EXTS:
         candidate = INPUT_DIR / f"{stem}.{ext}"
         if candidate.exists():
