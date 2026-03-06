@@ -101,18 +101,9 @@ choose_target_language() {
     echo -e "${BOLD}── 翻譯目標語言 ────────────────────────────${RESET}"
     echo ""
     echo -e "  ${BOLD}1)${RESET} 中文 (zh-TW)  ${CYAN}← 預設${RESET}"
-    echo -e "  ${BOLD}2)${RESET} 日文 (ja)"
     echo ""
 
-    local choice
-    read -rp "  選擇 [1]: " choice
-    choice="${choice:-1}"
-
-    case "$choice" in
-        1) SELECTED_TARGET_LANG="zh-TW" ;;
-        2) SELECTED_TARGET_LANG="ja" ;;
-        *) SELECTED_TARGET_LANG="zh-TW" ;;
-    esac
+    SELECTED_TARGET_LANG="zh-TW"
 }
 
 # ── OpenCC 選單 ─────────────────────────────────────────────────────────────────
@@ -150,12 +141,13 @@ confirm_and_run() {
     done
 
     # 讀取 config.py 中的模型名稱顯示
-    local seg_model tgt_lang
-    seg_model=$("$PYTHON" -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import SEGMENT_MODEL, TRANSLATE_TARGET_LANG; print(SEGMENT_MODEL)" 2>/dev/null || echo "未知")
+    local seg_model src_lang tgt_lang
+    seg_model=$("$PYTHON" -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import SEGMENT_MODEL, TRANSLATE_TARGET_LANG, TRANSLATE_SOURCE_LANG; print(SEGMENT_MODEL)" 2>/dev/null || echo "未知")
+    src_lang=$("$PYTHON" -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import TRANSLATE_SOURCE_LANG; print(TRANSLATE_SOURCE_LANG)" 2>/dev/null || echo "en")
     tgt_lang=$("$PYTHON"  -c "import sys; sys.path.insert(0,'$SCRIPT_DIR/local'); from config import TRANSLATE_TARGET_LANG; print(TRANSLATE_TARGET_LANG)" 2>/dev/null || echo "zh-TW")
 
     echo -e "  🤖  模型：${CYAN}${BOLD}${seg_model}${RESET}  ${DIM}(local/config.py)${RESET}"
-    echo -e "  🌐  翻譯：${tgt_lang} → ${SELECTED_TARGET_LANG}"
+    echo -e "  🌐  翻譯：${src_lang} → ${SELECTED_TARGET_LANG}"
     if [ -n "$SELECTED_OPENCC" ]; then
         echo -e "  🔄  OpenCC：${YELLOW}啟用${RESET}"
     else
