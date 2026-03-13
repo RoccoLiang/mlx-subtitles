@@ -22,3 +22,7 @@ __pycache__/
 
 # Hardware config (machine-specific, auto-generated on first run)
 .mlx-config
+
+# Local glossary (personal use, see local/glossary.example.txt for format)
+local/glossary.txt
+local/glossary_candidates.txt
