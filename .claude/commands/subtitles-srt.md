@@ -104,13 +104,54 @@ PYTHON="python3"
 ## Step A：分句並記錄時間碼
 
 **斷點續傳檢查（Step A 開始前）**：
+
 ```bash
-ls "<TMP_DIR>/<SEG_PREFIX>"_*.json 2>/dev/null | sort -V
+python3 -c "
+import json, glob, os
+
+tmpdir = '<TMP_DIR>'
+prefix = '<SEG_PREFIX>'
+batch_size = 200
+total_words = <TOTAL_WORDS>
+
+files = sorted(glob.glob(os.path.join(tmpdir, prefix + '_*.json')),
+               key=lambda x: int(x.rsplit('_', 1)[-1].replace('.json','')))
+
+covered_words = 0
+last_good_batch = -1
+for f in files:
+    n = int(f.rsplit('_', 1)[-1].replace('.json',''))
+    expected_start = n * batch_size
+    try:
+        segs = json.load(open(f, encoding='utf-8'))
+        if not segs:
+            print(f'EMPTY: batch {n} — will redo')
+            os.remove(f)
+            break
+        # Verify last segment's word_end is within expected range
+        last_word_end = segs[-1]['word_end'] + expected_start
+        expected_end = min(expected_start + batch_size - 1, total_words - 1)
+        if last_word_end < expected_end - 5:  # allow small tolerance
+            print(f'INCOMPLETE: batch {n} ends at word {last_word_end}, expected ~{expected_end} — will redo')
+            os.remove(f)
+            break
+        covered_words = last_word_end + 1
+        last_good_batch = n
+    except Exception as e:
+        print(f'INVALID: batch {n} ({e}) — will redo')
+        os.remove(f)
+        break
+
+next_batch = last_good_batch + 1
+next_word = next_batch * batch_size
+print(f'Covered words: {covered_words}/{total_words}')
+print(f'Next batch: {next_batch} (starting at word {next_word})')
+if covered_words >= total_words:
+    print('Step A COMPLETE — proceed to Step B')
+"
 ```
-若找到既有檔案：
-- 顯示已完成批次數與最後批次號
-- 從下一個批次繼續（跳過已完成的批次）
-- 若已全部完成（最後批次包含最後一個單字），直接進入 Step B
+
+從「Next batch」繼續；若輸出 `Step A COMPLETE`，直接進入 Step B。
 
 將單字陣列以 **200 個單字** 為一批，依序處理每批，輸出含時間碼的分句 JSON。
 
@@ -153,15 +194,49 @@ ls "<TMP_DIR>/<SEG_PREFIX>"_*.json 2>/dev/null | sort -V
 
 ## Step B：翻譯
 
-**斷點續傳檢查（Step B 開始前）**：
-```bash
-ls "<TMP_DIR>/<TR_PREFIX>"_*.json 2>/dev/null | sort -V
-```
-若找到既有翻譯檔案，顯示已完成批次數，從下一個批次繼續。
-
 **讀取所有 Step A 結果**：依序讀取 `<TMP_DIR>/<SEG_PREFIX>_0.json`、`<SEG_PREFIX>_1.json`...，合併為完整分句列表。
 
-顯示總句數，作為 token 用量估算參考。
+顯示總句數 `TOTAL_SENTENCES`，作為 token 用量估算參考。
+
+**斷點續傳檢查（Step B 開始前）**：
+
+```bash
+python3 -c "
+import json, glob, os, sys
+
+tmpdir = '<TMP_DIR>'
+prefix = '<TR_PREFIX>'
+batch_size = 200
+total = <TOTAL_SENTENCES>
+
+files = sorted(glob.glob(os.path.join(tmpdir, prefix + '_*.json')),
+               key=lambda x: int(x.rsplit('_', 1)[-1].replace('.json','')))
+
+translated = 0
+last_good_batch = -1
+for f in files:
+    n = int(f.rsplit('_', 1)[-1].replace('.json',''))
+    expected = min(batch_size, total - n * batch_size)
+    try:
+        segs = json.load(open(f, encoding='utf-8'))
+        if len(segs) == expected:
+            translated += len(segs)
+            last_good_batch = n
+        else:
+            print(f'INCOMPLETE: batch {n} has {len(segs)}/{expected} entries — will redo')
+            os.remove(f)
+            break
+    except Exception as e:
+        print(f'INVALID: batch {n} ({e}) — will redo')
+        os.remove(f)
+        break
+
+print(f'Translated so far: {translated}/{total} sentences')
+print(f'Next batch to process: {last_good_batch + 1}')
+"
+```
+
+從上面輸出的「Next batch to process」編號繼續，跳過已完整的批次。若所有批次都完整（translated == TOTAL_SENTENCES），直接進入步驟 3。
 
 將分句列表以 **200 句** 為一批，依序翻譯（注意：這裡的批次是按「句數」而非「單字數」）。
 
