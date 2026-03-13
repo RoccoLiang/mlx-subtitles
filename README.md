@@ -36,7 +36,7 @@ Place video in `input/`, execute:
 ./transcribe
 ```
 
-First run automatically detects hardware, installs environment, and recommends model.
+First run detects your hardware and sets up the environment.
 
 **Step 2 — Translation (Run in Claude Code)**
 
@@ -99,7 +99,7 @@ Subtitle files are output in the same directory as the video.
 
 ## OpenCC Enhancement (Optional)
 
-OpenCC converts Simplified Chinese to Traditional Chinese (Taiwan), enhancing translation quality and filling in potentially missed terminology.
+OpenCC converts the translation output from Simplified to Traditional Chinese (Taiwan standard). It also fixes terminology the model tends to get wrong.
 
 ### Usage
 
@@ -154,7 +154,6 @@ Muzikxpress
 - Skip interaction and run directly (transcription): `./transcribe input/video.mp4 [model] [language]`
 - Skip interaction and run directly (subtitles): `./subtitle_processor input/video.mp4`
 - Local Pipeline context limit: Default batch is 100 words/iteration, fits 4096 token context window
-- See **OpenCC Enhancement** section for translation enhancement options
 
 ---
 
@@ -196,7 +195,7 @@ Muzikxpress
 ./transcribe
 ```
 
-首次執行會自動偵測硬體、安裝環境，並推薦合適的模型。
+首次執行會偵測硬體，自動建置環境。
 
 **步驟 2 — 翻譯（在 Claude Code 中執行）**
 
@@ -259,7 +258,7 @@ curl -s http://localhost:1234/v1/models
 
 ## OpenCC 增強翻譯（可選）
 
-OpenCC 將簡體中文轉換為繁體中文（台灣），可提升翻譯品質，補正可能遺漏的用語。
+OpenCC 把翻譯輸出從簡體轉為台灣繁體，也會修正模型常翻錯的術語。
 
 ### 使用方式
 
@@ -314,4 +313,3 @@ Muzikxpress
 - 跳過互動直接執行（轉錄）：`./transcribe input/video.mp4 [model] [language]`
 - 跳過互動直接執行（字幕）：`./subtitle_processor input/video.mp4`
 - 本地 Pipeline 上下文限制：預設批次為 100 字詞/次，符合 4096 token 上下文視窗
-- 參考「OpenCC 增強翻譯」章節了解翻譯強化選項
