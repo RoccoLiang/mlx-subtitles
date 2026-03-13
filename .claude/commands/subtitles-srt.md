@@ -33,11 +33,18 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
    - `INPUT_FILE`：輸入路徑
    - `INPUT_IS_WORDS_JSON`：若副檔名為 `.words.json`，設為 `true`
 3. 推導 `PROJECT_ROOT`：從 `INPUT_FILE` 所在目錄向上找到含 `scripts/generate_subtitles.py` 的目錄；找不到則設為 `INPUT_FILE` 所在目錄
+4. 計算暫存路徑：
+   - `VIDEO_STEM`：`INPUT_FILE`（或 `WORDS_JSON`）的主檔名（去掉副檔名和路徑）
+   - `TMP_DIR`：`<PROJECT_ROOT>/tmp`
+   - `SEG_PREFIX`：`<VIDEO_STEM>_seg`
+   - `TR_PREFIX`：`<VIDEO_STEM>_tr`
+   - 建立暫存目錄：`mkdir -p "<TMP_DIR>"`
 
 顯示：
 ```
 輸入：<INPUT_FILE>
 翻譯方向：<SRC_LANG 全名> → <TGT_LANG 全名>
+暫存目錄：<TMP_DIR>
 ```
 
 ### 步驟 1：定位 words.json
@@ -96,6 +103,15 @@ PYTHON="python3"
 
 ## Step A：分句並記錄時間碼
 
+**斷點續傳檢查（Step A 開始前）**：
+```bash
+ls "<TMP_DIR>/<SEG_PREFIX>"_*.json 2>/dev/null | sort -V
+```
+若找到既有檔案：
+- 顯示已完成批次數與最後批次號
+- 從下一個批次繼續（跳過已完成的批次）
+- 若已全部完成（最後批次包含最後一個單字），直接進入 Step B
+
 將單字陣列以 **200 個單字** 為一批，依序處理每批，輸出含時間碼的分句 JSON。
 
 **前置作業（僅第一批執行）**：
@@ -129,7 +145,7 @@ PYTHON="python3"
 `word_start` / `word_end` 為本批次內的單字索引（0-based，含頭含尾）。
 `start` / `end` 為秒數浮點數，直接來自 words.json。
 
-4. 用 Write 工具將結果寫入 `/tmp/_segments_result_<批次編號>.json`（從 0 開始）。每批完成立即寫入，不等全部完成。
+4. 用 Write 工具將結果寫入 `<TMP_DIR>/<SEG_PREFIX>_<批次編號>.json`（從 0 開始）。每批完成立即寫入，不等全部完成。
 
 **Step A 全部批次完成後，才開始 Step B。**
 
@@ -137,7 +153,15 @@ PYTHON="python3"
 
 ## Step B：翻譯
 
-**讀取所有 Step A 結果**：依序讀取 `/tmp/_segments_result_0.json`、`_segments_result_1.json`...，合併為完整分句列表。
+**斷點續傳檢查（Step B 開始前）**：
+```bash
+ls "<TMP_DIR>/<TR_PREFIX>"_*.json 2>/dev/null | sort -V
+```
+若找到既有翻譯檔案，顯示已完成批次數，從下一個批次繼續。
+
+**讀取所有 Step A 結果**：依序讀取 `<TMP_DIR>/<SEG_PREFIX>_0.json`、`<SEG_PREFIX>_1.json`...，合併為完整分句列表。
+
+顯示總句數，作為 token 用量估算參考。
 
 將分句列表以 **200 句** 為一批，依序翻譯（注意：這裡的批次是按「句數」而非「單字數」）。
 
@@ -188,7 +212,7 @@ PYTHON="python3"
 ```
 不需要 `word_start`/`word_end`（時間碼已直接是秒數）。
 
-3. 用 Write 工具將結果寫入 `/tmp/_translated_result_<批次編號>.json`（從 0 開始）。每批完成立即寫入。
+3. 用 Write 工具將結果寫入 `<TMP_DIR>/<TR_PREFIX>_<批次編號>.json`（從 0 開始）。每批完成立即寫入。
 
 ---
 
@@ -200,13 +224,15 @@ PYTHON="python3"
 PYTHON="python3"
 [ -f "<PROJECT_ROOT>/.venv/bin/python" ] && PYTHON="<PROJECT_ROOT>/.venv/bin/python"
 
-"$PYTHON" "<PROJECT_ROOT>/scripts/assemble_srt.py" "/tmp" "<INPUT_FILE>"
+"$PYTHON" "<PROJECT_ROOT>/scripts/assemble_srt.py" \
+  "<TMP_DIR>" "<INPUT_FILE>" \
+  --prefix "<TR_PREFIX>"
 ```
 
 ### 步驟 4：清理暫存檔案
 
 ```bash
-rm -f /tmp/_segments_result_*.json /tmp/_translated_result_*.json
+rm -f "<TMP_DIR>/<SEG_PREFIX>"_*.json "<TMP_DIR>/<TR_PREFIX>"_*.json
 ```
 
 ### 步驟 5：報告結果

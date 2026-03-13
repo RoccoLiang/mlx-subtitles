@@ -3,11 +3,13 @@
 Assemble bilingual SRT subtitles from translated batch results.
 
 Usage:
-    python scripts/assemble_srt.py <tmpdir> [input_file] [--source-lang XX] [--target-lang XX] [--opencc]
+    python scripts/assemble_srt.py <tmpdir> [input_file] [--prefix PREFIX] [--source-lang XX] [--target-lang XX] [--opencc]
 
 Arguments:
-    tmpdir      Directory containing _translated_result_0.json, _translated_result_1.json, ...
+    tmpdir      Directory containing translated batch result JSON files
     input_file  Optional: original video/words.json path (determines output .srt filename)
+    --prefix    Filename prefix for translated batch files (default: _translated_result)
+                Files are expected as <prefix>_0.json, <prefix>_1.json, ...
     --opencc    Optional: apply OpenCC conversion to enhance Chinese translation (s2tw)
 
 Outputs:
@@ -96,12 +98,12 @@ def opencc_convert(text: str, converter) -> str:
     return converter.convert(text)
 
 
-def load_segments(tmpdir: str) -> list[dict]:
+def load_segments(tmpdir: str, prefix: str = "_translated_result") -> list[dict]:
     """Load all translated batch result files in order."""
     all_segments = []
     i = 0
     while True:
-        p = os.path.join(tmpdir, f"_translated_result_{i}.json")
+        p = os.path.join(tmpdir, f"{prefix}_{i}.json")
         if not os.path.exists(p):
             break
         with open(p, encoding="utf-8") as f:
@@ -161,6 +163,7 @@ def main() -> None:
     source_lang = "en"
     target_lang = "zh-TW"
     use_opencc = False
+    tr_prefix = "_translated_result"
     i = 1
     while i < len(sys.argv):
         if sys.argv[i] == "--source-lang" and i + 1 < len(sys.argv):
@@ -168,6 +171,9 @@ def main() -> None:
             i += 2
         elif sys.argv[i] == "--target-lang" and i + 1 < len(sys.argv):
             target_lang = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--prefix" and i + 1 < len(sys.argv):
+            tr_prefix = sys.argv[i + 1]
             i += 2
         elif sys.argv[i] == "--opencc":
             use_opencc = True
@@ -179,7 +185,7 @@ def main() -> None:
     tmpdir = positional[0]
     input_file = positional[1] if len(positional) > 1 else ""
 
-    segments = load_segments(tmpdir)
+    segments = load_segments(tmpdir, tr_prefix)
 
     if not segments:
         print("ERROR: No translated results found.", file=sys.stderr)

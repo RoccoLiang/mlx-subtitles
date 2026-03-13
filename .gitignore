@@ -10,6 +10,9 @@ output/*
 # JSON directory (local settings)
 JSON/
 
+# Subtitle pipeline temp files (per-video segments + translations)
+tmp/
+
 # macOS
 .DS_Store
 
