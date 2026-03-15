@@ -35,9 +35,10 @@ allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 3. 推導 `PROJECT_ROOT`：從 `INPUT_FILE` 所在目錄向上找到含 `scripts/generate_subtitles.py` 的目錄；找不到則設為 `INPUT_FILE` 所在目錄
 4. 計算暫存路徑：
    - `VIDEO_STEM`：`INPUT_FILE`（或 `WORDS_JSON`）的主檔名（去掉副檔名和路徑）
+   - `NORMALIZED_STEM`：對 `VIDEO_STEM` 套用與 `generate_subtitles.py` 相同的正規化：`re.sub(r'[^\w\-.]', '_', VIDEO_STEM)`；若 `INPUT_IS_WORDS_JSON` 為 `true`，則 `NORMALIZED_STEM = VIDEO_STEM`（words.json 已是正規化名稱）
    - `TMP_DIR`：`<PROJECT_ROOT>/tmp`
-   - `SEG_PREFIX`：`<VIDEO_STEM>_seg`
-   - `TR_PREFIX`：`<VIDEO_STEM>_tr`
+   - `SEG_PREFIX`：`<NORMALIZED_STEM>_seg`
+   - `TR_PREFIX`：`<NORMALIZED_STEM>_tr`
    - 建立暫存目錄：`mkdir -p "<TMP_DIR>"`
 
 顯示：
@@ -59,7 +60,7 @@ ls -la "<INPUT_FILE>"
 
 **如果輸入是影片**：
 ```bash
-ls -la "<PROJECT_ROOT>/output/<主檔名>.words.json"
+ls -la "<PROJECT_ROOT>/output/<NORMALIZED_STEM>.words.json"
 ```
 - 存在 → 設 `WORDS_JSON` 為該路徑，顯示 `✓ 找到 words.json`，跳到步驟 2
 - 不存在 → 執行步驟 1.5 產生 words.json
@@ -75,7 +76,7 @@ PYTHON="python3"
   --output "<PROJECT_ROOT>/output"
 ```
 
-完成後設 `WORDS_JSON="<PROJECT_ROOT>/output/<主檔名>.words.json"`，繼續步驟 2。
+完成後設 `WORDS_JSON="<PROJECT_ROOT>/output/<NORMALIZED_STEM>.words.json"`，繼續步驟 2。
 
 ### 步驟 2：讀取 words.json
 
