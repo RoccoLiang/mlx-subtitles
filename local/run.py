@@ -154,6 +154,10 @@ def resolve_video_path(input_path: Path) -> Path:
         candidate = INPUT_DIR / f"{stem}.{ext}"
         if candidate.exists():
             return candidate
+    print(
+        f"  警告：在 input/ 找不到對應的影片（{stem}.*），SRT 將輸出至 output/ 目錄",
+        file=sys.stderr,
+    )
     return input_path
 
 

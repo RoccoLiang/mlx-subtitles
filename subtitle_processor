@@ -103,7 +103,14 @@ choose_target_language() {
     echo -e "  ${BOLD}1)${RESET} 中文 (zh-TW)  ${CYAN}← 預設${RESET}"
     echo ""
 
-    SELECTED_TARGET_LANG="zh-TW"
+    local choice
+    read -rp "  選擇 [1]: " choice
+    choice="${choice:-1}"
+
+    case "$choice" in
+        1) SELECTED_TARGET_LANG="zh-TW" ;;
+        *) SELECTED_TARGET_LANG="zh-TW" ;;
+    esac
 }
 
 # ── OpenCC 選單 ─────────────────────────────────────────────────────────────────

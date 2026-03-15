@@ -222,13 +222,13 @@ def main() -> None:
     src_out = stem + f".{src_ext}.srt"
     tgt_out = stem + f".{tgt_ext}.srt"
 
+    tgt_normalizer = LANG_NORMALIZERS.get(target_lang)
+
     def enhanced_normalize(text: str) -> str:
         text = (tgt_normalizer or (lambda x: x))(text)
         if opencc_converter and text:
             text = opencc_convert(text, opencc_converter)
         return text
-
-    tgt_normalizer = LANG_NORMALIZERS.get(target_lang)
 
     src_content, src_count = build_srt(segments, "src")
     tgt_content, tgt_count = build_srt(segments, "tgt", normalize=enhanced_normalize)

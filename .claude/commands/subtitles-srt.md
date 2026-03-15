@@ -190,13 +190,26 @@ if covered_words >= total_words:
 
 **Step A 全部批次完成後，才開始 Step B。**
 
+> **Context 提示**：若剛完成 Step A 且批次數超過 15，建議在**新對話**中重新執行相同指令。斷點續傳會自動偵測 Step A 已完成並直接進入 Step B，確保翻譯過程有足夠的 context 空間。
+
 ---
 
 ## Step B：翻譯
 
-**讀取所有 Step A 結果**：依序讀取 `<TMP_DIR>/<SEG_PREFIX>_0.json`、`<SEG_PREFIX>_1.json`...，合併為完整分句列表。
+**計算 Step A 總句數**（用 Bash，不把所有 seg 檔載入 context）：
 
-顯示總句數 `TOTAL_SENTENCES`，作為 token 用量估算參考。
+```bash
+python3 -c "
+import json, glob, os
+files = sorted(glob.glob(os.path.join('<TMP_DIR>', '<SEG_PREFIX>_*.json')),
+               key=lambda x: int(x.rsplit('_', 1)[-1].replace('.json','')))
+total = sum(len(json.load(open(f))) for f in files)
+print(f'TOTAL_SENTENCES: {total}')
+print(f'Step B 批次數: {-(-total // 200)}')
+"
+```
+
+記下 `TOTAL_SENTENCES`。
 
 **斷點續傳檢查（Step B 開始前）**：
 
@@ -238,9 +251,30 @@ print(f'Next batch to process: {last_good_batch + 1}')
 
 從上面輸出的「Next batch to process」編號繼續，跳過已完整的批次。若所有批次都完整（translated == TOTAL_SENTENCES），直接進入步驟 3。
 
-將分句列表以 **200 句** 為一批，依序翻譯（注意：這裡的批次是按「句數」而非「單字數」）。
+將分句以 **200 句** 為一批，依序翻譯（批次按「句數」計算）。
 
 **每批翻譯操作**：
+
+0. **用 Bash 取出本批資料**（每批各自提取，避免累積大量 context）：
+
+```bash
+python3 -c "
+import json, glob, os
+files = sorted(glob.glob(os.path.join('<TMP_DIR>', '<SEG_PREFIX>_*.json')),
+               key=lambda x: int(x.rsplit('_', 1)[-1].replace('.json','')))
+all_segs = []
+for f in files:
+    all_segs.extend(json.load(open(f)))
+s = <BATCH_N> * 200
+batch = all_segs[s:s+200]
+print(json.dumps(
+    [{'src': x['src'], 'start': x['start'], 'end': x['end']} for x in batch],
+    ensure_ascii=False, indent=2
+))
+"
+```
+
+   對此 Bash 輸出的 JSON 進行翻譯。
 
 1. **翻譯**：將每個分句的 `src` 翻譯成正體中文（台灣用語）
 
